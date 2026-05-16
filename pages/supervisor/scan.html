@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Scan Task (Supervisor)</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../services/task.js"></script>
+  <script src="../../services/upload.js"></script>
+  <script src="../../utils/helper.js"></script>
+  <script src="../../components/layout.js"></script>
+
+  <script>
+    const user = AuthService.requireAuth('supervisor');
+    let qrScanner = null;
+    let currentArea = null;
+    let checklistItems = [];
+    let selectedPhotos = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      initScanner();
+    });
+
+    function buildLayout() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo"><div class="logo-icon">🧹</div><div class="logo-text">CleanPro<span>Monitoring System</span></div></div>
+          <div class="sidebar-nav">
+            <div class="nav-section-label">Monitoring</div>
+            <a href="dashboard.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item active"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Riwayat Semua</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Manajemen</div>
+            <a href="users.html" class="nav-item"><span class="nav-icon">👥</span><span class="nav-label">User Management</span></a>
+            <a href="areas.html" class="nav-item"><span class="nav-icon">🗺️</span><span class="nav-label">Area & QR</span></a>
+            <a href="checklists.html" class="nav-item"><span class="nav-icon">✅</span><span class="nav-label">Checklist</span></a>
+            <a href="shifts.html" class="nav-item"><span class="nav-icon">📅</span><span class="nav-label">Jadwal Shift</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Laporan</div>
+            <a href="report.html" class="nav-item"><span class="nav-icon">📄</span><span class="nav-label">Export Laporan</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user"><div class="user-avatar">${getInitials(user.nama)}</div><div class="user-info"><div class="user-name">${user.nama}</div><div class="user-role">Supervisor</div></div></div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer"><span class="nav-icon">🚪</span><span class="nav-label">Keluar</span></div>
+          </div>
+        </nav>
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Scan Task<small>QR Patrol & Checklist (Supervisor)</small></div>
+          </header>
+          <main class="page-content">
+
+            <div id="step1" class="anim-fade-up">
+              <div class="card mb-16">
+                <div class="section-header mb-16">
+                  <div><div class="section-title">📷 Scan QR Area</div><div class="section-subtitle">Arahkan kamera ke QR code area patrol</div></div>
+                </div>
+                <div class="qr-container mb-16" style="min-height:280px;position:relative;border-radius:16px;overflow:hidden">
+                  <div id="qr-reader" style="width:100%"></div>
+                  <div class="qr-scanner-overlay" id="scannerOverlay">
+                    <div class="qr-frame">
+                      <div class="qr-frame-corner"></div><div class="qr-frame-corner"></div>
+                      <div class="qr-frame-corner"></div><div class="qr-frame-corner"></div>
+                      <div class="qr-scan-line"></div>
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px">
+                  <div class="form-control-icon" style="flex:1">
+                    <span class="form-icon">🔍</span>
+                    <input type="text" id="manualQR" class="form-control" placeholder="Masukkan kode QR manual...">
+                  </div>
+                  <button class="btn btn-outline" onclick="handleManualQR()">Cari</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="step2" style="display:none">
+              <div class="card mb-16 anim-fade-up" id="areaHeader"></div>
+              <div class="card mb-16 anim-fade-up-delay-1">
+                <div class="section-title mb-16">✅ Checklist Pekerjaan</div>
+                <div id="checklistContainer"></div>
+              </div>
+              <div class="card mb-16 anim-fade-up-delay-2">
+                <div class="section-header mb-12"><div class="section-title">📷 Upload Foto</div><span class="badge badge-muted">Max 2 foto</span></div>
+                <div class="upload-zone" onclick="document.getElementById('photoInput').click()">
+                  <input type="file" id="photoInput" accept="image/*" multiple style="display:none" onchange="handlePhotoSelect(event)">
+                  <div class="upload-icon">📸</div>
+                  <div class="upload-text">Tap untuk pilih foto</div>
+                  <div class="upload-hint">Auto-compress ke WebP · Max 5MB</div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:10px">
+                  <button class="btn btn-outline btn-sm" onclick="openCamera()" style="flex:1">📸 Kamera</button>
+                  <button class="btn btn-outline btn-sm" onclick="document.getElementById('photoInput').click()" style="flex:1">🖼️ Galeri</button>
+                </div>
+                <div class="photo-previews" id="photoPreviews"></div>
+              </div>
+              <div class="card mb-16 anim-fade-up-delay-3">
+                <div class="section-title mb-12">📝 Keterangan / Note</div>
+                <textarea id="taskNote" class="form-control" placeholder="Tambahkan catatan (opsional)..." rows="3"></textarea>
+              </div>
+              <div style="display:flex;gap:10px;margin-bottom:32px">
+                <button class="btn btn-outline" onclick="resetToScan()">← Scan Ulang</button>
+                <button class="btn btn-primary" onclick="submitTask()" style="flex:1" id="submitBtn">
+                  <span id="submitText">✅ Submit Task</span>
+                  <span id="submitSpinner" style="display:none">⏳ Menyimpan...</span>
+                </button>
+              </div>
+            </div>
+
+          </main>
+        </div>
+      `;
+    }
+
+    function initScanner() {
+      whenReady(() => {
+        qrScanner = new Html5Qrcode('qr-reader');
+        qrScanner.start({ facingMode:'environment' }, { fps:10, qrbox:{width:220,height:220} },
+          (code) => onQRScanned(code), () => {}
+        ).then(() => {
+          document.getElementById('scannerOverlay').style.display = 'flex';
+        }).catch(() => {
+          document.getElementById('scannerOverlay').style.display = 'none';
+          Toast.warning('Kamera tidak tersedia. Gunakan input manual.');
+        });
+      });
+    }
+
+    function stopScanner() { if(qrScanner){qrScanner.stop().catch(()=>{});qrScanner=null;} }
+
+    async function onQRScanned(code) {
+      stopScanner();
+      Toast.info('QR terdeteksi!');
+      await loadAreaByQR(code);
+    }
+
+    async function handleManualQR() {
+      const code = document.getElementById('manualQR').value.trim();
+      if (!code) { Toast.warning('Masukkan kode QR.'); return; }
+      await loadAreaByQR(code);
+    }
+
+    async function loadAreaByQR(code) {
+      const { data: area, error } = await TaskService.getAreaByQR(code);
+      if (error || !area) { Toast.error('Area tidak ditemukan.'); return; }
+      currentArea = area;
+      const { data: checklist } = await TaskService.getAreaChecklist(area.id);
+      checklistItems = (checklist||[]).map(c => ({...c, checked:false}));
+      document.getElementById('step1').style.display = 'none';
+      document.getElementById('step2').style.display = 'block';
+      document.getElementById('areaHeader').innerHTML = `
+        <div style="display:flex;align-items:center;gap:16px">
+          <div style="width:52px;height:52px;border-radius:14px;background:var(--primary-dim);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">📍</div>
+          <div><div style="font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--primary)">${area.nama_area}</div>
+          <div style="font-size:13px;color:var(--text-secondary)">${area.kategori||'Area Patrol'} · ${DateUtils.formatDateTime(new Date().toISOString())}</div></div>
+          <div class="badge badge-success" style="margin-left:auto">✓ Terdeteksi</div>
+        </div>`;
+      renderChecklist();
+      window.scrollTo({top:0,behavior:'smooth'});
+    }
+
+    function renderChecklist() {
+      const c = document.getElementById('checklistContainer');
+      if (!checklistItems.length) { c.innerHTML = renderEmptyState('📋','Tidak ada checklist'); return; }
+      c.innerHTML = checklistItems.map((item,i) => `
+        <div class="checklist-item ${item.checked?'checked':''}" onclick="toggleCheck(${i})" id="check-${i}">
+          <div class="checklist-check"><svg width="12" height="9" viewBox="0 0 12 9" fill="none"><path d="M1 4L4.5 7.5L11 1" stroke="#000" stroke-width="2" stroke-linecap="round"/></svg></div>
+          <span class="checklist-label">${item.item_checklist}</span>
+        </div>`).join('');
+    }
+
+    function toggleCheck(i) {
+      checklistItems[i].checked = !checklistItems[i].checked;
+      const el = document.getElementById(`check-${i}`);
+      el.classList.toggle('checked', checklistItems[i].checked);
+    }
+
+    function openCamera() {
+      const input = document.createElement('input');
+      input.type='file'; input.accept='image/*'; input.capture='environment';
+      input.onchange = (e) => handlePhotoSelect(e);
+      input.click();
+    }
+
+    function handlePhotoSelect(event) {
+      const files = Array.from(event.target.files||[]);
+      const max = window.CLEANPRO_CONFIG.IMAGE.MAX_PER_TASK;
+      const remaining = max - selectedPhotos.length;
+      if (remaining <= 0) { Toast.warning(`Max ${max} foto.`); return; }
+      files.slice(0, remaining).forEach(file => {
+        const v = UploadService.validateFile(file);
+        if (!v.valid) { Toast.error(v.message); return; }
+        selectedPhotos.push(file);
+      });
+      renderPhotoPreviews();
+      event.target.value = '';
+    }
+
+    function renderPhotoPreviews() {
+      document.getElementById('photoPreviews').innerHTML = selectedPhotos.map((file,i) => {
+        const url = URL.createObjectURL(file);
+        return `<div class="photo-preview-item"><img src="${url}" alt="preview"><button class="photo-preview-remove" onclick="removePhoto(${i})">✕</button></div>`;
+      }).join('');
+    }
+
+    function removePhoto(i) { selectedPhotos.splice(i,1); renderPhotoPreviews(); }
+
+    async function submitTask() {
+      if (!currentArea) { Toast.error('Area belum dipilih.'); return; }
+      const note = document.getElementById('taskNote').value.trim();
+      document.getElementById('submitBtn').disabled = true;
+      document.getElementById('submitText').style.display = 'none';
+      document.getElementById('submitSpinner').style.display = 'inline';
+      const result = await TaskService.submitTask({ userId: user.id, areaId: currentArea.id, note, checklistItems, photoFiles: selectedPhotos });
+      document.getElementById('submitBtn').disabled = false;
+      document.getElementById('submitText').style.display = 'inline';
+      document.getElementById('submitSpinner').style.display = 'none';
+      if (result.success) { Toast.success('Task berhasil disimpan!'); setTimeout(() => window.location.href='dashboard.html', 1200); }
+      else Toast.error('Gagal: ' + result.message);
+    }
+
+    function resetToScan() {
+      currentArea=null; checklistItems=[]; selectedPhotos=[];
+      document.getElementById('step1').style.display='block';
+      document.getElementById('step2').style.display='none';
+      document.getElementById('manualQR').value='';
+      initScanner();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Riwayat Semua</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../services/task.js"></script>
+  <script src="../../services/upload.js"></script>
+  <script src="../../utils/helper.js"></script>
+  <script src="../../utils/export.js"></script>
+  <script src="../../components/layout.js"></script>
+  <script>
+    const user = AuthService.requireAuth('supervisor');
+    let allTasks = [];
+    let offset = 0;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      populateFilters();
+      loadHistory();
+    });
+
+    function buildLayout() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo"><div class="logo-icon">🧹</div><div class="logo-text">CleanPro<span>Monitoring System</span></div></div>
+          <div class="sidebar-nav">
+            <div class="nav-section-label">Monitoring</div>
+            <a href="dashboard.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item active"><span class="nav-icon">📊</span><span class="nav-label">Riwayat Semua</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Manajemen</div>
+            <a href="users.html" class="nav-item"><span class="nav-icon">👥</span><span class="nav-label">User Management</span></a>
+            <a href="areas.html" class="nav-item"><span class="nav-icon">🗺️</span><span class="nav-label">Area & QR</span></a>
+            <a href="checklists.html" class="nav-item"><span class="nav-icon">✅</span><span class="nav-label">Checklist</span></a>
+            <a href="shifts.html" class="nav-item"><span class="nav-icon">📅</span><span class="nav-label">Jadwal Shift</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Laporan</div>
+            <a href="report.html" class="nav-item"><span class="nav-icon">📄</span><span class="nav-label">Export Laporan</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user"><div class="user-avatar">${getInitials(user.nama)}</div><div class="user-info"><div class="user-name">${user.nama}</div><div class="user-role">Supervisor</div></div></div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer"><span class="nav-icon">🚪</span><span class="nav-label">Keluar</span></div>
+          </div>
+        </nav>
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Riwayat Semua<small>Monitoring seluruh aktivitas leader</small></div>
+            <div class="topbar-actions">
+              <button class="btn btn-outline btn-sm" onclick="exportData('excel')">📊 Excel</button>
+              <button class="btn btn-outline btn-sm" onclick="exportData('pdf')">📄 PDF</button>
+            </div>
+          </header>
+          <main class="page-content">
+
+            <!-- Filters -->
+            <div class="card mb-16">
+              <div class="section-title mb-12">🔍 Filter</div>
+              <div class="filter-bar">
+                <input type="date" id="filterDate" class="form-control" value="${DateUtils.today()}" onchange="loadHistory()">
+                <select id="filterUser" class="form-control" onchange="loadHistory()">
+                  <option value="">Semua Leader</option>
+                </select>
+                <select id="filterArea" class="form-control" onchange="loadHistory()">
+                  <option value="">Semua Area</option>
+                </select>
+                <button class="btn btn-outline btn-sm" onclick="clearFilters()">Reset</button>
+              </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="grid grid-3 mb-16" id="summaryCards">
+              ${skeletonCard(3)}
+            </div>
+
+            <!-- Task Table -->
+            <div class="card">
+              <div class="section-header mb-16">
+                <div class="section-title">📋 Daftar Task</div>
+                <span id="totalCount" class="badge badge-muted">—</span>
+              </div>
+              <div id="taskTableWrap">${skeletonCard(4)}</div>
+              <div id="loadMoreBtn" style="display:none;text-align:center;margin-top:16px">
+                <button class="btn btn-outline" onclick="loadMore()">Muat Lebih Banyak</button>
+              </div>
+            </div>
+
+          </main>
+        </div>
+      `;
+    }
+
+    async function populateFilters() {
+      whenReady(async () => {
+        const { data: users } = await window.db.from('users').select('id,nama').eq('role','leader').eq('active',true).order('nama');
+        const uSel = document.getElementById('filterUser');
+        (users||[]).forEach(u => { const o = document.createElement('option'); o.value=u.id; o.textContent=u.nama; uSel.appendChild(o); });
+
+        const areas = await TaskService.getAreas();
+        const aSel = document.getElementById('filterArea');
+        areas.forEach(a => { const o = document.createElement('option'); o.value=a.id; o.textContent=a.nama_area; aSel.appendChild(o); });
+      });
+    }
+
+    async function loadHistory(reset = true) {
+      if (reset) offset = 0;
+      const date   = document.getElementById('filterDate').value;
+      const userId = document.getElementById('filterUser').value || null;
+      const areaId = document.getElementById('filterArea').value || null;
+
+      const { data } = await TaskService.getAllTasks({ date, userId, areaId, limit: 20, offset });
+      if (reset) allTasks = data || [];
+      else allTasks = [...allTasks, ...(data || [])];
+
+      renderSummary();
+      renderTable();
+      document.getElementById('loadMoreBtn').style.display = (data?.length === 20) ? 'block' : 'none';
+    }
+
+    function renderSummary() {
+      const total      = allTasks.length;
+      const withPhotos = allTasks.filter(t => t.task_photos?.length).length;
+      const leaders    = [...new Set(allTasks.map(t => t.user_id))].length;
+
+      document.getElementById('summaryCards').innerHTML = `
+        <div class="card stat-card">
+          <div class="stat-icon" style="background:var(--success-bg);color:var(--success)">✅</div>
+          <div class="stat-value">${total}</div>
+          <div class="stat-label">Total Task</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-icon" style="background:var(--info-bg);color:var(--info)">👷</div>
+          <div class="stat-value">${leaders}</div>
+          <div class="stat-label">Leader Aktif</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-icon" style="background:var(--warning-bg);color:var(--warning)">📷</div>
+          <div class="stat-value">${withPhotos}</div>
+          <div class="stat-label">Task Berfoto</div>
+        </div>
+      `;
+      document.getElementById('totalCount').textContent = `${total} task`;
+    }
+
+    function renderTable() {
+      if (!allTasks.length) {
+        document.getElementById('taskTableWrap').innerHTML = renderEmptyState('📭', 'Tidak ada task', 'Coba ubah filter pencarian.');
+        return;
+      }
+      document.getElementById('taskTableWrap').innerHTML = `
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Waktu</th>
+                <th>Leader</th>
+                <th>Area</th>
+                <th>Checklist</th>
+                <th>Note</th>
+                <th>Foto</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allTasks.map(t => `
+                <tr>
+                  <td>
+                    <div style="font-weight:600">${DateUtils.formatTime(t.created_at)}</div>
+                    <div style="font-size:11px;color:var(--text-muted)">${DateUtils.formatDate(t.created_at)}</div>
+                  </td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--secondary),var(--primary));display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${getInitials(t.users?.nama||'?')}</div>
+                      <span>${t.users?.nama||'—'}</span>
+                    </div>
+                  </td>
+                  <td><span class="badge badge-info">📍 ${t.areas?.nama_area||'—'}</span></td>
+                  <td>${formatChecklist(t.task_checklists)}</td>
+                  <td style="max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.note||'<span style="color:var(--text-muted)">—</span>'}</td>
+                  <td>${t.task_photos?.length
+                    ? `<img src="${UploadService.getThumbnailUrl(t.task_photos[0].photo_url)}" onclick="ImageViewer.open('${t.task_photos[0].photo_url}')" style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer">`
+                    : '<span style="color:var(--text-muted)">—</span>'}</td>
+                  <td><button class="btn btn-ghost btn-sm" onclick="showDetail('${t.id}')">Detail</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    async function loadMore() {
+      offset += 20;
+      await loadHistory(false);
+    }
+
+    function clearFilters() {
+      document.getElementById('filterDate').value = DateUtils.today();
+      document.getElementById('filterUser').value = '';
+      document.getElementById('filterArea').value = '';
+      loadHistory();
+    }
+
+    function showDetail(taskId) {
+      const t = allTasks.find(x => x.id === taskId);
+      if (!t) return;
+      const checklist = t.task_checklists || [];
+      const done = checklist.filter(c => c.status).length;
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay open';
+      modal.innerHTML = `
+        <div class="modal">
+          <div class="modal-header">
+            <div class="modal-title">📍 ${t.areas?.nama_area}</div>
+            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+          </div>
+          <div class="modal-body">
+            <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+              <span class="badge badge-info">👤 ${t.users?.nama||'—'}</span>
+              <span class="badge badge-muted">🕐 ${DateUtils.formatDateTime(t.created_at)}</span>
+              <span class="badge badge-success">✅ ${done}/${checklist.length} item</span>
+            </div>
+            ${checklist.length ? `
+              <div style="font-weight:600;margin-bottom:8px;font-size:14px">Checklist</div>
+              ${checklist.map(c => `
+                <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--glass-border)">
+                  <span>${c.status ? '✅' : '⬜'}</span>
+                  <span style="font-size:13px;${!c.status?'color:var(--text-muted)':''}">${c.checklists?.item_checklist||'—'}</span>
+                </div>
+              `).join('')}
+            ` : ''}
+            ${t.note ? `<div style="margin-top:14px;font-weight:600;margin-bottom:6px;font-size:14px">Note</div><div style="font-size:13px;color:var(--text-secondary)">${t.note}</div>` : ''}
+            ${t.task_photos?.length ? `
+              <div style="margin-top:14px;font-weight:600;margin-bottom:8px;font-size:14px">Foto</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                ${t.task_photos.map(p => `<img src="${p.photo_url}" onclick="ImageViewer.open('${p.photo_url}')" style="width:90px;height:90px;object-fit:cover;border-radius:10px;cursor:pointer;border:1px solid var(--glass-border)">`).join('')}
+              </div>
+            ` : ''}
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Tutup</button>
+          </div>
+        </div>
+      `;
+      modal.addEventListener('click', e => { if(e.target===modal) modal.remove(); });
+      document.body.appendChild(modal);
+    }
+
+    async function exportData(format) {
+      const date   = document.getElementById('filterDate').value;
+      const userId = document.getElementById('filterUser').value || null;
+      const areaId = document.getElementById('filterArea').value || null;
+      const { data } = await TaskService.getAllTasks({ date, userId, areaId, limit: 5000 });
+      if (format === 'excel') await ExportService.toExcel(data||[], `riwayat-semua-${date}`);
+      else await ExportService.toPDF(data||[], `riwayat-semua-${date}`, 'Laporan Semua Aktivitas Leader');
+    }
+  </script>
+</body>
+</html>

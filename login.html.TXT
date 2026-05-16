@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Login</title>
+  <link rel="stylesheet" href="assets/css/main.css">
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+
+    .login-wrap {
+      width: 100%;
+      max-width: 420px;
+      padding: 20px;
+      animation: fadeInUp 0.5s ease both;
+    }
+
+    .login-brand {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .login-logo {
+      width: 64px; height: 64px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 30px rgba(0,212,170,0.3);
+      animation: float 4s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    .login-title {
+      font-family: var(--font-display);
+      font-size: 28px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .login-subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    .login-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(30px);
+      border: 1px solid var(--glass-border);
+      border-radius: 24px;
+      padding: 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(0,212,170,0.4), transparent);
+    }
+
+    .shift-selector {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .shift-option {
+      position: relative;
+    }
+
+    .shift-option input {
+      position: absolute;
+      opacity: 0;
+      width: 0; height: 0;
+    }
+
+    .shift-option label {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 8px;
+      border-radius: 10px;
+      border: 1px solid var(--glass-border);
+      cursor: pointer;
+      transition: all var(--transition-base);
+      text-align: center;
+      background: var(--bg-input);
+    }
+
+    .shift-option label:hover {
+      border-color: var(--primary);
+      background: var(--primary-dim);
+    }
+
+    .shift-option input:checked + label {
+      border-color: var(--primary);
+      background: var(--primary-dim);
+      box-shadow: 0 0 0 1px var(--primary);
+      color: var(--primary);
+    }
+
+    .shift-icon { font-size: 18px; margin-bottom: 4px; }
+    .shift-name { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    .shift-time { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+    .remember-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .custom-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .custom-check input { display: none; }
+
+    .check-box {
+      width: 18px; height: 18px;
+      border-radius: 5px;
+      border: 2px solid var(--glass-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-input);
+      transition: all var(--transition-base);
+    }
+
+    .custom-check input:checked + .check-box {
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .check-mark { display: none; font-size: 10px; color: #000; }
+    .custom-check input:checked + .check-box .check-mark { display: block; }
+
+    .password-wrap { position: relative; }
+    .password-toggle {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 16px;
+      background: none;
+      border: none;
+      padding: 0;
+      transition: color var(--transition-base);
+    }
+    .password-toggle:hover { color: var(--text-secondary); }
+
+    .login-divider {
+      text-align: center;
+      position: relative;
+      margin: 20px 0;
+    }
+
+    .login-divider::before {
+      content: '';
+      position: absolute;
+      left: 0; right: 0;
+      top: 50%;
+      height: 1px;
+      background: var(--glass-border);
+    }
+
+    .login-divider span {
+      position: relative;
+      background: var(--bg-elevated);
+      padding: 0 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .login-footer {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .login-footer a { color: var(--primary); text-decoration: none; }
+
+    .error-msg {
+      background: var(--danger-bg);
+      border: 1px solid rgba(255,107,107,0.2);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--danger);
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .error-msg.show { display: flex; align-items: center; gap: 8px; }
+  </style>
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+
+  <div class="login-wrap">
+    <div class="login-brand">
+      <div class="login-logo">🧹</div>
+      <div class="login-title">CleanPro</div>
+      <div class="login-subtitle">Cleaning Service Patrol & Activity Monitoring</div>
+    </div>
+
+    <div class="login-card">
+      <div id="errorMsg" class="error-msg">
+        <span>⚠️</span>
+        <span id="errorText">Username atau password salah.</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <div class="form-control-icon">
+          <span class="form-icon">👤</span>
+          <input type="text" id="username" class="form-control" placeholder="Masukkan username" autocomplete="username">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <div class="password-wrap">
+          <input type="password" id="password" class="form-control" placeholder="Masukkan password" autocomplete="current-password" style="padding-right:48px">
+          <button class="password-toggle" onclick="togglePassword()" type="button" id="eyeBtn">👁️</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Shift</label>
+        <div class="shift-selector">
+          <div class="shift-option">
+            <input type="radio" name="shift" id="shift1" value="pagi" checked>
+            <label for="shift1">
+              <span class="shift-icon">🌅</span>
+              <span class="shift-name">Pagi</span>
+              <span class="shift-time">07:00–15:00</span>
+            </label>
+          </div>
+          <div class="shift-option">
+            <input type="radio" name="shift" id="shift2" value="siang">
+            <label for="shift2">
+              <span class="shift-icon">☀️</span>
+              <span class="shift-name">Siang</span>
+              <span class="shift-time">15:00–23:00</span>
+            </label>
+          </div>
+          <div class="shift-option">
+            <input type="radio" name="shift" id="shift3" value="malam">
+            <label for="shift3">
+              <span class="shift-icon">🌙</span>
+              <span class="shift-name">Malam</span>
+              <span class="shift-time">23:00–07:00</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="remember-row">
+        <label class="custom-check">
+          <input type="checkbox" id="remember">
+          <span class="check-box"><span class="check-mark">✓</span></span>
+          Ingat saya
+        </label>
+      </div>
+
+      <button class="btn btn-primary w-100 btn-lg" id="loginBtn" onclick="handleLogin()">
+        <span id="loginText">Masuk</span>
+        <span id="loginSpinner" style="display:none">⏳</span>
+      </button>
+
+      <div class="login-footer">
+        Lupa password? Hubungi <a href="#">Supervisor</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="config/config.js"></script>
+  <script src="services/supabase.js"></script>
+  <script src="services/auth.js"></script>
+  <script>
+    // Pre-fill from remember
+    window.addEventListener('DOMContentLoaded', () => {
+      const saved = localStorage.getItem('cp_remember');
+      if (saved) {
+        const d = JSON.parse(saved);
+        document.getElementById('username').value = d.username || '';
+        document.getElementById('remember').checked = true;
+      }
+
+      // Check already logged in
+      const session = sessionStorage.getItem('cp_session') || localStorage.getItem('cp_session');
+      if (session) {
+        const user = JSON.parse(session);
+        redirectByRole(user.role);
+      }
+    });
+
+    function togglePassword() {
+      const input = document.getElementById('password');
+      const btn = document.getElementById('eyeBtn');
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = '🙈';
+      } else {
+        input.type = 'password';
+        btn.textContent = '👁️';
+      }
+    }
+
+    async function handleLogin() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const shift = document.querySelector('input[name="shift"]:checked').value;
+      const remember = document.getElementById('remember').checked;
+      const errMsg = document.getElementById('errorMsg');
+      const errText = document.getElementById('errorText');
+      const loginBtn = document.getElementById('loginBtn');
+      const loginText = document.getElementById('loginText');
+      const loginSpinner = document.getElementById('loginSpinner');
+
+      if (!username || !password) {
+        errText.textContent = 'Username dan password wajib diisi.';
+        errMsg.classList.add('show');
+        return;
+      }
+
+      // Loading state
+      loginBtn.disabled = true;
+      loginText.style.display = 'none';
+      loginSpinner.style.display = 'inline';
+      errMsg.classList.remove('show');
+
+      try {
+        const result = await AuthService.login(username, password, shift);
+
+        if (result.success) {
+          const session = { ...result.user, shift, loginTime: new Date().toISOString() };
+          const store = remember ? localStorage : sessionStorage;
+          store.setItem('cp_session', JSON.stringify(session));
+
+          if (remember) {
+            localStorage.setItem('cp_remember', JSON.stringify({ username }));
+          } else {
+            localStorage.removeItem('cp_remember');
+          }
+
+          redirectByRole(result.user.role);
+        } else {
+          errText.textContent = result.message || 'Login gagal. Coba lagi.';
+          errMsg.classList.add('show');
+        }
+      } catch (e) {
+        errText.textContent = 'Koneksi bermasalah. Periksa internet.';
+        errMsg.classList.add('show');
+      } finally {
+        loginBtn.disabled = false;
+        loginText.style.display = 'inline';
+        loginSpinner.style.display = 'none';
+      }
+    }
+
+    function redirectByRole(role) {
+      if (role === 'supervisor') {
+        window.location.href = 'pages/supervisor/dashboard.html';
+      } else {
+        window.location.href = 'pages/leader/dashboard.html';
+      }
+    }
+
+    // Enter key support
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleLogin();
+    });
+  </script>
+</body>
+</html>

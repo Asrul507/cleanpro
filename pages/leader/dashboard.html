@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Dashboard Leader</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../services/task.js"></script>
+  <script src="../../services/upload.js"></script>
+  <script src="../../utils/helper.js"></script>
+  <script src="../../utils/export.js"></script>
+  <script src="../../components/layout.js"></script>
+
+  <script>
+    // ── Auth Guard ──
+    const user = AuthService.requireAuth('leader');
+    if (!user) throw new Error('Not authorized');
+
+    const onShift = AuthService.isOnShift();
+
+    // ── Build Layout ──
+    document.addEventListener('DOMContentLoaded', async () => {
+      document.body.insertAdjacentHTML('afterbegin', `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        ${buildSidebar()}
+        <div class="main-content" id="mainContent">
+          ${buildTopbar()}
+          <main class="page-content">
+            <div id="pageBody">${buildSkeleton()}</div>
+          </main>
+        </div>
+      `);
+
+      Sidebar.init();
+      await loadDashboard();
+    });
+
+    function buildSidebar() {
+      return `
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo">
+            <div class="logo-icon">🧹</div>
+            <div class="logo-text">CleanPro<span>Monitoring System</span></div>
+          </div>
+          <div class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item active"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            ${onShift ? `<a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>` : ''}
+            <a href="history.html" class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Riwayat Saya</span></a>
+            <a href="profile.html" class="nav-item"><span class="nav-icon">👤</span><span class="nav-label">Profile Saya</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user">
+              <div class="user-avatar">${getInitials(user.nama)}</div>
+              <div class="user-info">
+                <div class="user-name">${user.nama}</div>
+                <div class="user-role">Leader · Shift ${user.shift}</div>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer">
+              <span class="nav-icon">🚪</span><span class="nav-label">Keluar</span>
+            </div>
+          </div>
+        </nav>
+      `;
+    }
+
+    function buildTopbar() {
+      const shifts = window.CLEANPRO_CONFIG.SHIFTS;
+      const sc = shifts[user.shift] || {};
+      return `
+        <header class="topbar" id="topbar">
+          <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+          <div class="topbar-breadcrumb">
+            Dashboard
+            <small>Selamat datang, ${user.nama}</small>
+          </div>
+          <div class="topbar-actions">
+            <div class="shift-badge ${onShift ? 'active' : 'inactive'}">
+              <div class="shift-badge-dot"></div>
+              ${sc.icon || '⏰'} ${onShift ? 'Sedang Shift' : 'Di Luar Shift'}
+            </div>
+          </div>
+        </header>
+      `;
+    }
+
+    function buildSkeleton() {
+      return `
+        <div class="grid grid-4 mb-20">${skeletonCard(4)}</div>
+        <div class="grid grid-2">
+          <div class="card">${skeletonCard(1)}</div>
+          <div class="card">${skeletonCard(1)}</div>
+        </div>
+      `;
+    }
+
+    async function loadDashboard() {
+      const today = DateUtils.today();
+      const [taskCount, { data: tasks }] = await Promise.all([
+        TaskService.getTodayCount(user.id),
+        TaskService.getMyTasks(user.id, { date: today }),
+      ]);
+
+      const lastTask = tasks?.[0];
+      const lastArea = lastTask?.areas?.nama_area || '—';
+
+      document.getElementById('pageBody').innerHTML = `
+        <!-- Off-shift warning -->
+        ${!onShift ? `
+          <div class="card mb-20" style="border-color:rgba(255,179,71,0.3);background:var(--warning-bg)">
+            <div style="display:flex;gap:12px;align-items:center">
+              <span style="font-size:24px">⚠️</span>
+              <div>
+                <div style="font-weight:600;color:var(--warning)">Mode View Only</div>
+                <div style="font-size:13px;color:var(--text-secondary)">Anda sedang di luar jam shift. Input task dinonaktifkan.</div>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Stats -->
+        <div class="grid grid-4 mb-20 anim-fade-up">
+          <div class="card stat-card">
+            <div class="stat-card-glow" style="background:var(--primary)"></div>
+            <div class="stat-icon" style="background:var(--success-bg);color:var(--success)">✅</div>
+            <div class="stat-value">${taskCount}</div>
+            <div class="stat-label">Task Hari Ini</div>
+          </div>
+          <div class="card stat-card">
+            <div class="stat-card-glow" style="background:var(--secondary)"></div>
+            <div class="stat-icon" style="background:var(--info-bg);color:var(--info)">📍</div>
+            <div class="stat-value" style="font-size:20px">${lastArea}</div>
+            <div class="stat-label">Area Terakhir</div>
+          </div>
+          <div class="card stat-card">
+            <div class="stat-card-glow" style="background:var(--accent-amber)"></div>
+            <div class="stat-icon" style="background:var(--warning-bg);color:var(--warning)">🕐</div>
+            <div class="stat-value" style="font-size:18px">${lastTask ? DateUtils.formatTime(lastTask.created_at) : '—'}</div>
+            <div class="stat-label">Waktu Terakhir</div>
+          </div>
+          <div class="card stat-card">
+            <div class="stat-card-glow" style="background:var(--accent)"></div>
+            <div class="stat-icon" style="background:var(--danger-bg);color:var(--danger)">📅</div>
+            <div class="stat-value" style="font-size:16px">${DateUtils.formatDate(new Date().toISOString())}</div>
+            <div class="stat-label">Tanggal Hari Ini</div>
+          </div>
+        </div>
+
+        <!-- Scan button (only on shift) -->
+        ${onShift ? `
+          <div class="mb-20 anim-fade-up-delay-1">
+            <a href="scan.html">
+              <button class="btn btn-scan">
+                <span style="font-size:24px">📷</span>
+                Scan QR untuk Input Task
+              </button>
+            </a>
+          </div>
+        ` : ''}
+
+        <!-- Main content grid -->
+        <div class="grid grid-2 anim-fade-up-delay-2">
+
+          <!-- Timeline hari ini -->
+          <div class="card" style="grid-column: ${!onShift ? '1' : '1'}">
+            <div class="section-header mb-16">
+              <div>
+                <div class="section-title">📋 Timeline Hari Ini</div>
+                <div class="section-subtitle">${DateUtils.formatDate(new Date().toISOString())}</div>
+              </div>
+              <a href="history.html" class="btn btn-outline btn-sm">Lihat Semua</a>
+            </div>
+            <div id="timelineContainer">
+              ${renderTimeline(tasks, false)}
+            </div>
+          </div>
+
+          <!-- Last task detail -->
+          <div class="card">
+            <div class="section-header mb-16">
+              <div class="section-title">📦 Task Terakhir</div>
+            </div>
+            ${lastTask ? renderLastTask(lastTask) : renderEmptyState('📭', 'Belum Ada Task', 'Submit task pertama hari ini!')}
+          </div>
+        </div>
+      `;
+
+      // Realtime update
+      TaskService.subscribeToTasks((payload) => {
+        if (payload.new.user_id !== user.id) return;
+        Toast.info('Task baru masuk. Memuat ulang...');
+        setTimeout(() => loadDashboard(), 1000);
+      });
+    }
+
+    function renderLastTask(task) {
+      const checklist = task.task_checklists || [];
+      const done = checklist.filter(c => c.status).length;
+      return `
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+            <span style="font-size:20px">📍</span>
+            <div>
+              <div style="font-weight:600;font-size:16px">${task.areas?.nama_area || '—'}</div>
+              <div style="font-size:12px;color:var(--text-muted)">${DateUtils.formatDateTime(task.created_at)}</div>
+            </div>
+          </div>
+          <div class="card-flat mb-12" style="padding:12px 16px">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">CHECKLIST</div>
+            <div style="font-size:22px;font-family:var(--font-display);font-weight:700;color:var(--primary)">${done}/${checklist.length}</div>
+            <div style="font-size:12px;color:var(--text-secondary)">item selesai</div>
+          </div>
+          ${task.note ? `
+            <div class="card-flat mb-12" style="padding:12px 16px">
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">NOTE</div>
+              <div style="font-size:14px">${task.note}</div>
+            </div>
+          ` : ''}
+          ${task.task_photos?.length ? `
+            <div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">FOTO</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                ${task.task_photos.map(p => `
+                  <img src="${UploadService.getThumbnailUrl(p.photo_url)}"
+                       onclick="ImageViewer.open('${p.photo_url}')"
+                       style="width:72px;height:72px;object-fit:cover;border-radius:10px;cursor:pointer;border:1px solid var(--glass-border)"
+                       loading="lazy" alt="foto">
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>

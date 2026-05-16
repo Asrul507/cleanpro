@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Export Laporan</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../services/task.js"></script>
+  <script src="../../services/upload.js"></script>
+  <script src="../../utils/helper.js"></script>
+  <script src="../../utils/export.js"></script>
+
+  <script>
+    const user = AuthService.requireAuth('supervisor');
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      populateFilters();
+      setDefaultDates();
+      previewData();
+    });
+
+    function buildLayout() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo"><div class="logo-icon">🧹</div><div class="logo-text">CleanPro<span>Monitoring System</span></div></div>
+          <div class="sidebar-nav">
+            <div class="nav-section-label">Monitoring</div>
+            <a href="dashboard.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Riwayat Semua</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Manajemen</div>
+            <a href="users.html" class="nav-item"><span class="nav-icon">👥</span><span class="nav-label">User Management</span></a>
+            <a href="areas.html" class="nav-item"><span class="nav-icon">🗺️</span><span class="nav-label">Area & QR</span></a>
+            <a href="checklists.html" class="nav-item"><span class="nav-icon">✅</span><span class="nav-label">Checklist</span></a>
+            <a href="shifts.html" class="nav-item"><span class="nav-icon">📅</span><span class="nav-label">Jadwal Shift</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Laporan</div>
+            <a href="report.html" class="nav-item active"><span class="nav-icon">📄</span><span class="nav-label">Export Laporan</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user"><div class="user-avatar">${getInitials(user.nama)}</div><div class="user-info"><div class="user-name">${user.nama}</div><div class="user-role">Supervisor</div></div></div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer"><span class="nav-icon">🚪</span><span class="nav-label">Keluar</span></div>
+          </div>
+        </nav>
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Export Laporan<small>Generate laporan PDF & Excel</small></div>
+          </header>
+          <main class="page-content">
+            <div class="grid grid-2 anim-fade-up">
+
+              <!-- Filter Panel -->
+              <div>
+                <div class="card mb-16">
+                  <div class="section-title mb-16">🔍 Konfigurasi Laporan</div>
+
+                  <div class="form-group">
+                    <label class="form-label">Tanggal Mulai</label>
+                    <input type="date" id="dateFrom" class="form-control" onchange="previewData()">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Tanggal Akhir</label>
+                    <input type="date" id="dateTo" class="form-control" onchange="previewData()">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Filter Leader</label>
+                    <select id="filterUser" class="form-control" onchange="previewData()">
+                      <option value="">Semua Leader</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Filter Area</label>
+                    <select id="filterArea" class="form-control" onchange="previewData()">
+                      <option value="">Semua Area</option>
+                    </select>
+                  </div>
+
+                  <div class="divider"></div>
+
+                  <!-- Shortcuts -->
+                  <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px">Shortcut Periode:</div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                    <button class="btn btn-outline btn-sm" onclick="setRange('today')">Hari Ini</button>
+                    <button class="btn btn-outline btn-sm" onclick="setRange('week')">Minggu Ini</button>
+                    <button class="btn btn-outline btn-sm" onclick="setRange('month')">Bulan Ini</button>
+                    <button class="btn btn-outline btn-sm" onclick="setRange('last30')">30 Hari</button>
+                  </div>
+
+                  <div class="divider"></div>
+
+                  <div style="display:grid;gap:10px">
+                    <button class="btn btn-primary btn-lg" onclick="exportReport('excel')">
+                      📊 Export Excel (.xlsx)
+                    </button>
+                    <button class="btn btn-secondary btn-lg" onclick="exportReport('pdf')">
+                      📄 Export PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Preview Panel -->
+              <div>
+                <div class="card mb-16">
+                  <div class="section-header mb-16">
+                    <div class="section-title">👁️ Preview Data</div>
+                    <span id="previewCount" class="badge badge-muted">—</span>
+                  </div>
+                  <div id="previewStats" class="grid grid-2" style="gap:10px;margin-bottom:16px"></div>
+                  <div id="previewTable" style="max-height:400px;overflow-y:auto">${skeletonCard(2)}</div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      `;
+    }
+
+    function setDefaultDates() {
+      const today = DateUtils.today();
+      document.getElementById('dateFrom').value = today;
+      document.getElementById('dateTo').value = today;
+    }
+
+    function setRange(range) {
+      const now = new Date();
+      let from, to = DateUtils.today();
+      switch (range) {
+        case 'today': from = to; break;
+        case 'week':
+          const day = now.getDay() || 7;
+          const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
+          from = mon.toISOString().split('T')[0]; break;
+        case 'month':
+          from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`; break;
+        case 'last30':
+          const d30 = new Date(now); d30.setDate(now.getDate() - 30);
+          from = d30.toISOString().split('T')[0]; break;
+      }
+      document.getElementById('dateFrom').value = from;
+      document.getElementById('dateTo').value = to;
+      previewData();
+    }
+
+    async function populateFilters() {
+      whenReady(async () => {
+        const { data: users } = await window.db.from('users').select('id,nama').eq('role','leader').eq('active',true).order('nama');
+        const uSel = document.getElementById('filterUser');
+        (users||[]).forEach(u => { const o=document.createElement('option'); o.value=u.id; o.textContent=u.nama; uSel.appendChild(o); });
+
+        const areas = await TaskService.getAreas();
+        const aSel = document.getElementById('filterArea');
+        areas.forEach(a => { const o=document.createElement('option'); o.value=a.id; o.textContent=a.nama_area; aSel.appendChild(o); });
+      });
+    }
+
+    let previewTasks = [];
+
+    async function previewData() {
+      const dateFrom = document.getElementById('dateFrom').value;
+      const dateTo   = document.getElementById('dateTo').value;
+      const userId   = document.getElementById('filterUser').value || null;
+      const areaId   = document.getElementById('filterArea').value || null;
+
+      document.getElementById('previewTable').innerHTML = skeletonCard(2);
+
+      // Fetch all for range
+      let allData = [];
+      let cur = new Date(dateFrom);
+      const end = new Date(dateTo);
+      while (cur <= end) {
+        const d = cur.toISOString().split('T')[0];
+        const { data } = await TaskService.getAllTasks({ date: d, userId, areaId, limit: 1000 });
+        allData = [...allData, ...(data||[])];
+        cur.setDate(cur.getDate() + 1);
+      }
+
+      previewTasks = allData;
+      const total  = allData.length;
+      const photos = allData.filter(t => t.task_photos?.length).length;
+      const leaders= [...new Set(allData.map(t => t.user_id))].length;
+      const areas2 = [...new Set(allData.map(t => t.area_id))].length;
+
+      document.getElementById('previewCount').textContent = `${total} task`;
+      document.getElementById('previewStats').innerHTML = `
+        <div style="padding:12px;background:var(--bg-input);border-radius:10px;text-align:center">
+          <div style="font-size:24px;font-weight:700;font-family:var(--font-display);color:var(--primary)">${total}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Total Task</div>
+        </div>
+        <div style="padding:12px;background:var(--bg-input);border-radius:10px;text-align:center">
+          <div style="font-size:24px;font-weight:700;font-family:var(--font-display)">${leaders}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Leader</div>
+        </div>
+        <div style="padding:12px;background:var(--bg-input);border-radius:10px;text-align:center">
+          <div style="font-size:24px;font-weight:700;font-family:var(--font-display)">${areas2}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Area</div>
+        </div>
+        <div style="padding:12px;background:var(--bg-input);border-radius:10px;text-align:center">
+          <div style="font-size:24px;font-weight:700;font-family:var(--font-display)">${photos}</div>
+          <div style="font-size:12px;color:var(--text-secondary)">Berfoto</div>
+        </div>
+      `;
+
+      if (!allData.length) {
+        document.getElementById('previewTable').innerHTML = renderEmptyState('📭', 'Tidak ada data', 'Coba ubah rentang tanggal atau filter.');
+        return;
+      }
+
+      const sample = allData.slice(0, 15);
+      document.getElementById('previewTable').innerHTML = `
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Tanggal</th><th>Jam</th><th>Leader</th><th>Area</th><th>Checklist</th></tr></thead>
+            <tbody>
+              ${sample.map(t => `
+                <tr>
+                  <td>${DateUtils.formatDate(t.created_at)}</td>
+                  <td>${DateUtils.formatTime(t.created_at)}</td>
+                  <td>${t.users?.nama||'—'}</td>
+                  <td>${t.areas?.nama_area||'—'}</td>
+                  <td>${formatChecklist(t.task_checklists)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${allData.length > 15 ? `<div style="text-align:center;padding:10px;font-size:13px;color:var(--text-muted)">+ ${allData.length-15} data lainnya akan disertakan di export</div>` : ''}
+      `;
+    }
+
+    async function exportReport(format) {
+      if (!previewTasks.length) { Toast.warning('Tidak ada data untuk diexport.'); return; }
+      const from = document.getElementById('dateFrom').value;
+      const to   = document.getElementById('dateTo').value;
+      const filename = `laporan-cleanpro-${from}-sd-${to}`;
+      if (format === 'excel') await ExportService.toExcel(previewTasks, filename);
+      else await ExportService.toPDF(previewTasks, filename, `Laporan Cleaning Service ${from} s/d ${to}`);
+    }
+  </script>
+</body>
+</html>

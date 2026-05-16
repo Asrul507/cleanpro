@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Riwayat Saya</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../services/task.js"></script>
+  <script src="../../services/upload.js"></script>
+  <script src="../../utils/helper.js"></script>
+  <script src="../../utils/export.js"></script>
+  <script src="../../components/layout.js"></script>
+  <script>
+    const user = AuthService.requireAuth('leader');
+    let allTasks = [];
+    let offset = 0;
+    const LIMIT = 20;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      loadHistory();
+    });
+
+    function buildLayout() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo">
+            <div class="logo-icon">🧹</div>
+            <div class="logo-text">CleanPro<span>Monitoring System</span></div>
+          </div>
+          <div class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item active"><span class="nav-icon">📋</span><span class="nav-label">Riwayat Saya</span></a>
+            <a href="profile.html" class="nav-item"><span class="nav-icon">👤</span><span class="nav-label">Profile</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user">
+              <div class="user-avatar">${getInitials(user.nama)}</div>
+              <div class="user-info">
+                <div class="user-name">${user.nama}</div>
+                <div class="user-role">Leader</div>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer">
+              <span class="nav-icon">🚪</span><span class="nav-label">Keluar</span>
+            </div>
+          </div>
+        </nav>
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Riwayat Saya<small>History pekerjaan Anda</small></div>
+            <div class="topbar-actions">
+              <button class="topbar-btn" onclick="exportData('excel')" title="Export Excel">📊</button>
+              <button class="topbar-btn" onclick="exportData('pdf')" title="Export PDF">📄</button>
+            </div>
+          </header>
+          <main class="page-content">
+
+            <!-- Filters -->
+            <div class="card mb-16">
+              <div class="filter-bar" style="margin-bottom:0">
+                <input type="date" id="filterDate" class="form-control" value="${DateUtils.today()}"
+                       onchange="loadHistory()" style="max-width:180px">
+                <div class="form-control-icon" style="flex:1">
+                  <span class="form-icon">🔍</span>
+                  <input type="text" id="filterSearch" class="form-control" placeholder="Cari area..."
+                         oninput="filterLocal()">
+                </div>
+                <button class="btn btn-outline btn-sm" onclick="clearFilters()">Reset</button>
+              </div>
+            </div>
+
+            <!-- Stats summary -->
+            <div id="statsSummary" class="grid grid-3 mb-16">
+              <div class="card"><div class="skeleton skeleton-title"></div></div>
+              <div class="card"><div class="skeleton skeleton-title"></div></div>
+              <div class="card"><div class="skeleton skeleton-title"></div></div>
+            </div>
+
+            <!-- Task list -->
+            <div class="card">
+              <div class="section-header mb-16">
+                <div class="section-title">📋 Daftar Task</div>
+                <span id="taskCount" class="badge badge-muted">—</span>
+              </div>
+              <div id="taskList">${skeletonCard(3)}</div>
+              <div id="loadMoreBtn" style="display:none;margin-top:16px;text-align:center">
+                <button class="btn btn-outline" onclick="loadMore()">Muat Lebih Banyak</button>
+              </div>
+            </div>
+
+          </main>
+        </div>
+      `;
+    }
+
+    async function loadHistory(reset = true) {
+      if (reset) offset = 0;
+      const date = document.getElementById('filterDate')?.value;
+
+      const { data } = await TaskService.getMyTasks(user.id, { date, limit: LIMIT, offset });
+      if (reset) allTasks = data || [];
+      else allTasks = [...allTasks, ...(data || [])];
+
+      renderStats();
+      renderTasks();
+
+      if ((data || []).length === LIMIT) {
+        document.getElementById('loadMoreBtn').style.display = 'block';
+      } else {
+        document.getElementById('loadMoreBtn').style.display = 'none';
+      }
+    }
+
+    function renderStats() {
+      const total = allTasks.length;
+      const withPhotos = allTasks.filter(t => t.task_photos?.length).length;
+      const areas = [...new Set(allTasks.map(t => t.area_id))].length;
+
+      document.getElementById('statsSummary').innerHTML = `
+        <div class="card stat-card">
+          <div class="stat-icon" style="background:var(--success-bg);color:var(--success)">✅</div>
+          <div class="stat-value">${total}</div>
+          <div class="stat-label">Total Task</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-icon" style="background:var(--info-bg);color:var(--info)">📍</div>
+          <div class="stat-value">${areas}</div>
+          <div class="stat-label">Area Dikunjungi</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-icon" style="background:var(--warning-bg);color:var(--warning)">📷</div>
+          <div class="stat-value">${withPhotos}</div>
+          <div class="stat-label">Task Berfoto</div>
+        </div>
+      `;
+    }
+
+    function renderTasks() {
+      document.getElementById('taskCount').textContent = `${allTasks.length} task`;
+
+      if (!allTasks.length) {
+        document.getElementById('taskList').innerHTML = renderEmptyState('📭', 'Belum ada riwayat', 'Tidak ada task ditemukan untuk filter ini.');
+        return;
+      }
+
+      document.getElementById('taskList').innerHTML = `
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Waktu</th>
+                <th>Area</th>
+                <th>Checklist</th>
+                <th>Note</th>
+                <th>Foto</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allTasks.map(t => `
+                <tr>
+                  <td>
+                    <div style="font-weight:600">${DateUtils.formatTime(t.created_at)}</div>
+                    <div style="font-size:11px;color:var(--text-muted)">${DateUtils.formatDate(t.created_at)}</div>
+                  </td>
+                  <td>
+                    <span class="badge badge-info">📍 ${t.areas?.nama_area || '—'}</span>
+                  </td>
+                  <td>${formatChecklist(t.task_checklists)}</td>
+                  <td style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                    ${t.note || '<span style="color:var(--text-muted)">—</span>'}
+                  </td>
+                  <td>
+                    ${t.task_photos?.length
+                      ? `<img src="${UploadService.getThumbnailUrl(t.task_photos[0].photo_url)}"
+                              onclick="ImageViewer.open('${t.task_photos[0].photo_url}')"
+                              style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer">`
+                      : '<span style="color:var(--text-muted)">—</span>'
+                    }
+                  </td>
+                  <td>
+                    <button class="btn btn-ghost btn-sm" onclick="showDetail('${t.id}')">Detail</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function filterLocal() {
+      const q = document.getElementById('filterSearch').value.toLowerCase();
+      const filtered = allTasks.filter(t => t.areas?.nama_area?.toLowerCase().includes(q));
+      renderFilteredTasks(filtered);
+    }
+
+    function renderFilteredTasks(tasks) {
+      document.getElementById('taskCount').textContent = `${tasks.length} task`;
+      if (!tasks.length) {
+        document.getElementById('taskList').innerHTML = renderEmptyState('🔍', 'Tidak ditemukan');
+        return;
+      }
+      // Re-render with filtered
+      const backup = allTasks;
+      allTasks = tasks;
+      renderTasks();
+      allTasks = backup;
+    }
+
+    function clearFilters() {
+      document.getElementById('filterDate').value = DateUtils.today();
+      document.getElementById('filterSearch').value = '';
+      loadHistory();
+    }
+
+    async function loadMore() {
+      offset += LIMIT;
+      await loadHistory(false);
+    }
+
+    function showDetail(taskId) {
+      const task = allTasks.find(t => t.id === taskId);
+      if (!task) return;
+
+      const checklist = task.task_checklists || [];
+      const done = checklist.filter(c => c.status).length;
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay open';
+      modal.innerHTML = `
+        <div class="modal">
+          <div class="modal-header">
+            <div class="modal-title">📍 ${task.areas?.nama_area}</div>
+            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+          </div>
+          <div class="modal-body">
+            <div style="color:var(--text-muted);font-size:13px;margin-bottom:16px">${DateUtils.formatDateTime(task.created_at)}</div>
+
+            <div style="font-weight:600;margin-bottom:8px">Checklist (${done}/${checklist.length})</div>
+            ${checklist.map(c => `
+              <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--glass-border)">
+                <span>${c.status ? '✅' : '⬜'}</span>
+                <span style="font-size:14px;${!c.status ? 'color:var(--text-muted)' : ''}">${c.checklists?.item_checklist || '—'}</span>
+              </div>
+            `).join('')}
+
+            ${task.note ? `
+              <div style="margin-top:16px;font-weight:600;margin-bottom:6px">Note</div>
+              <div style="font-size:14px;color:var(--text-secondary)">${task.note}</div>
+            ` : ''}
+
+            ${task.task_photos?.length ? `
+              <div style="margin-top:16px;font-weight:600;margin-bottom:8px">Foto</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                ${task.task_photos.map(p => `
+                  <img src="${p.photo_url}" onclick="ImageViewer.open('${p.photo_url}')"
+                       style="width:80px;height:80px;object-fit:cover;border-radius:10px;cursor:pointer;border:1px solid var(--glass-border)">
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Tutup</button>
+          </div>
+        </div>
+      `;
+      modal.addEventListener('click', e => { if(e.target === modal) modal.remove(); });
+      document.body.appendChild(modal);
+    }
+
+    async function exportData(format) {
+      const date = document.getElementById('filterDate').value;
+      const { data } = await TaskService.getMyTasks(user.id, { date, limit: 1000 });
+      // Inject user for export
+      const enriched = (data || []).map(t => ({ ...t, users: { nama: user.nama, username: user.username } }));
+
+      if (format === 'excel') {
+        await ExportService.toExcel(enriched, `riwayat-${user.username}-${date}`);
+      } else {
+        await ExportService.toPDF(enriched, `riwayat-${user.username}-${date}`, `Riwayat Task — ${user.nama}`);
+      }
+    }
+  </script>
+</body>
+</html>

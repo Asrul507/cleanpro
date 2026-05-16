@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Checklist Management</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../utils/helper.js"></script>
+
+  <script>
+    const user = AuthService.requireAuth('supervisor');
+    let areas = [];
+    let selectedArea = null;
+    let checklistItems = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      loadAreas();
+    });
+
+    function buildLayout() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo"><div class="logo-icon">🧹</div><div class="logo-text">CleanPro<span>Monitoring System</span></div></div>
+          <div class="sidebar-nav">
+            <div class="nav-section-label">Monitoring</div>
+            <a href="dashboard.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Riwayat Semua</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Manajemen</div>
+            <a href="users.html" class="nav-item"><span class="nav-icon">👥</span><span class="nav-label">User Management</span></a>
+            <a href="areas.html" class="nav-item"><span class="nav-icon">🗺️</span><span class="nav-label">Area & QR</span></a>
+            <a href="checklists.html" class="nav-item active"><span class="nav-icon">✅</span><span class="nav-label">Checklist</span></a>
+            <a href="shifts.html" class="nav-item"><span class="nav-icon">📅</span><span class="nav-label">Jadwal Shift</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Laporan</div>
+            <a href="report.html" class="nav-item"><span class="nav-icon">📄</span><span class="nav-label">Export Laporan</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user"><div class="user-avatar">${getInitials(user.nama)}</div><div class="user-info"><div class="user-name">${user.nama}</div><div class="user-role">Supervisor</div></div></div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer"><span class="nav-icon">🚪</span><span class="nav-label">Keluar</span></div>
+          </div>
+        </nav>
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Checklist Management<small>Kelola item checklist per area</small></div>
+          </header>
+          <main class="page-content">
+            <div class="grid grid-2 anim-fade-up">
+
+              <!-- Area selector -->
+              <div class="card">
+                <div class="section-header mb-16">
+                  <div class="section-title">🗺️ Pilih Area</div>
+                </div>
+                <div id="areaSelector">${skeletonCard(3)}</div>
+              </div>
+
+              <!-- Checklist editor -->
+              <div class="card" id="checklistPanel">
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;opacity:0.4">
+                  <div style="font-size:42px;margin-bottom:12px">✅</div>
+                  <div style="font-size:15px;font-weight:600">Pilih area terlebih dahulu</div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      `;
+    }
+
+    async function loadAreas() {
+      whenReady(async () => {
+        const { data } = await window.db.from('areas').select('*').order('nama_area');
+        areas = data || [];
+        renderAreaSelector();
+      });
+    }
+
+    const catIcons = { Toilet:'🚽', Lobby:'🏛️', Foodcourt:'🍔', Musholla:'🕌', Basement:'🅿️', Parkir:'🚗', Koridor:'🚶', Lainnya:'📍' };
+
+    function renderAreaSelector() {
+      if (!areas.length) {
+        document.getElementById('areaSelector').innerHTML = renderEmptyState('🗺️', 'Belum ada area', 'Tambah area di menu Area & QR dulu.');
+        return;
+      }
+      document.getElementById('areaSelector').innerHTML = areas.map(a => `
+        <div onclick="selectArea('${a.id}')" id="asel_${a.id}"
+             style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--glass-border);background:var(--bg-input);cursor:pointer;margin-bottom:8px;transition:all 0.2s">
+          <span style="font-size:20px">${catIcons[a.kategori]||'📍'}</span>
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:14px">${a.nama_area}</div>
+            <div style="font-size:12px;color:var(--text-muted)" id="count_${a.id}">Memuat...</div>
+          </div>
+          <span style="font-size:16px;color:var(--text-muted)">›</span>
+        </div>
+      `).join('');
+
+      // Load counts
+      areas.forEach(loadChecklistCount);
+    }
+
+    async function loadChecklistCount(area) {
+      whenReady(async () => {
+        const { count } = await window.db.from('checklists').select('*',{count:'exact',head:true}).eq('area_id', area.id);
+        const el = document.getElementById(`count_${area.id}`);
+        if (el) el.textContent = `${count||0} item checklist`;
+      });
+    }
+
+    async function selectArea(areaId) {
+      // Highlight selected
+      document.querySelectorAll('[id^="asel_"]').forEach(el => {
+        el.style.borderColor = 'var(--glass-border)';
+        el.style.background = 'var(--bg-input)';
+      });
+      const sel = document.getElementById(`asel_${areaId}`);
+      if (sel) { sel.style.borderColor = 'var(--primary)'; sel.style.background = 'var(--primary-dim)'; }
+
+      selectedArea = areas.find(a => a.id === areaId);
+      document.getElementById('checklistPanel').innerHTML = `<div style="text-align:center;padding:20px">${skeletonCard(1)}</div>`;
+
+      whenReady(async () => {
+        const { data } = await window.db.from('checklists').select('*').eq('area_id', areaId).order('id');
+        checklistItems = data || [];
+        renderChecklistEditor();
+      });
+    }
+
+    function renderChecklistEditor() {
+      document.getElementById('checklistPanel').innerHTML = `
+        <div class="section-header mb-16">
+          <div>
+            <div class="section-title">✅ ${selectedArea.nama_area}</div>
+            <div style="font-size:13px;color:var(--text-secondary)">${checklistItems.length} item</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addItem()">+ Tambah Item</button>
+        </div>
+
+        <div id="itemList">
+          ${renderItems()}
+        </div>
+
+        <div style="margin-top:16px">
+          <div style="font-weight:600;font-size:14px;margin-bottom:8px">Import Cepat (satu baris = satu item)</div>
+          <textarea id="bulkInput" class="form-control" rows="4" placeholder="Lantai bersih&#10;Wastafel bersih&#10;Tissue tersedia&#10;Tempat sampah kosong"></textarea>
+          <button class="btn btn-outline w-100" style="margin-top:8px" onclick="bulkImport()">⬆️ Import Semua</button>
+        </div>
+      `;
+    }
+
+    function renderItems() {
+      if (!checklistItems.length) return renderEmptyState('✅', 'Belum ada item', 'Tambah item checklist di atas.');
+      return checklistItems.map((item, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-input);border-radius:10px;margin-bottom:6px;border:1px solid var(--glass-border)">
+          <span style="color:var(--primary);font-size:16px">✅</span>
+          <span style="flex:1;font-size:14px">${item.item_checklist}</span>
+          <button class="btn btn-ghost btn-sm" onclick="editItem('${item.id}','${item.item_checklist.replace(/'/g,"\\'")}')">✏️</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteItem('${item.id}')">🗑️</button>
+        </div>
+      `).join('');
+    }
+
+    function addItem() {
+      const text = prompt('Nama item checklist:');
+      if (!text?.trim()) return;
+      whenReady(async () => {
+        const { error } = await window.db.from('checklists').insert({ area_id: selectedArea.id, item_checklist: text.trim() });
+        if (error) { Toast.error('Gagal tambah item.'); return; }
+        Toast.success('Item ditambahkan!');
+        selectArea(selectedArea.id);
+        loadChecklistCount(selectedArea);
+      });
+    }
+
+    function editItem(id, oldText) {
+      const text = prompt('Edit item checklist:', oldText);
+      if (!text?.trim() || text === oldText) return;
+      whenReady(async () => {
+        const { error } = await window.db.from('checklists').update({ item_checklist: text.trim() }).eq('id', id);
+        if (error) { Toast.error('Gagal update.'); return; }
+        Toast.success('Item diupdate!');
+        selectArea(selectedArea.id);
+      });
+    }
+
+    async function deleteItem(id) {
+      if (!confirm('Hapus item ini?')) return;
+      whenReady(async () => {
+        const { error } = await window.db.from('checklists').delete().eq('id', id);
+        if (error) { Toast.error('Gagal hapus.'); return; }
+        Toast.success('Item dihapus!');
+        selectArea(selectedArea.id);
+        loadChecklistCount(selectedArea);
+      });
+    }
+
+    async function bulkImport() {
+      const raw = document.getElementById('bulkInput').value.trim();
+      if (!raw) return;
+      const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+      if (!lines.length) return;
+
+      const rows = lines.map(line => ({ area_id: selectedArea.id, item_checklist: line }));
+      whenReady(async () => {
+        const { error } = await window.db.from('checklists').insert(rows);
+        if (error) { Toast.error('Gagal import: ' + error.message); return; }
+        Toast.success(`${lines.length} item berhasil diimport!`);
+        document.getElementById('bulkInput').value = '';
+        selectArea(selectedArea.id);
+        loadChecklistCount(selectedArea);
+      });
+    }
+  </script>
+</body>
+</html>

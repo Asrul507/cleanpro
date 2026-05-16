@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Jadwal Shift</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../utils/helper.js"></script>
+
+  <script>
+    const user = AuthService.requireAuth('supervisor');
+    let leaders = [];
+    let shifts = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      loadData();
+    });
+
+    function buildLayout() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo"><div class="logo-icon">🧹</div><div class="logo-text">CleanPro<span>Monitoring System</span></div></div>
+          <div class="sidebar-nav">
+            <div class="nav-section-label">Monitoring</div>
+            <a href="dashboard.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Riwayat Semua</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Manajemen</div>
+            <a href="users.html" class="nav-item"><span class="nav-icon">👥</span><span class="nav-label">User Management</span></a>
+            <a href="areas.html" class="nav-item"><span class="nav-icon">🗺️</span><span class="nav-label">Area & QR</span></a>
+            <a href="checklists.html" class="nav-item"><span class="nav-icon">✅</span><span class="nav-label">Checklist</span></a>
+            <a href="shifts.html" class="nav-item active"><span class="nav-icon">📅</span><span class="nav-label">Jadwal Shift</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Laporan</div>
+            <a href="report.html" class="nav-item"><span class="nav-icon">📄</span><span class="nav-label">Export Laporan</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user"><div class="user-avatar">${getInitials(user.nama)}</div><div class="user-info"><div class="user-name">${user.nama}</div><div class="user-role">Supervisor</div></div></div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer"><span class="nav-icon">🚪</span><span class="nav-label">Keluar</span></div>
+          </div>
+        </nav>
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Jadwal Shift<small>Kelola jadwal shift leader</small></div>
+            <div class="topbar-actions">
+              <button class="btn btn-primary btn-sm" onclick="openAddShift()">+ Tambah Jadwal</button>
+            </div>
+          </header>
+          <main class="page-content">
+
+            <!-- Filter week -->
+            <div class="card mb-16 anim-fade-up">
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <div class="form-control-icon" style="flex:1;max-width:200px">
+                  <span class="form-icon">📅</span>
+                  <input type="week" id="weekPicker" class="form-control" onchange="loadData()">
+                </div>
+                <select id="filterLeader" class="form-control" style="max-width:200px" onchange="renderShiftTable()">
+                  <option value="">Semua Leader</option>
+                </select>
+                <button class="btn btn-outline btn-sm" onclick="setThisWeek()">Minggu Ini</button>
+              </div>
+            </div>
+
+            <!-- Shift Table -->
+            <div class="card mb-16 anim-fade-up-delay-1">
+              <div class="section-header mb-16">
+                <div class="section-title">📅 Jadwal Minggu Ini</div>
+                <span id="shiftCount" class="badge badge-muted">—</span>
+              </div>
+              <div id="shiftTable">${skeletonCard(3)}</div>
+            </div>
+
+          </main>
+        </div>
+
+        <!-- Modal -->
+        <div class="modal-overlay" id="shiftModal">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title" id="shiftModalTitle">Tambah Jadwal</div>
+              <button class="modal-close" onclick="closeShiftModal()">✕</button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" id="editShiftId">
+              <div class="form-group">
+                <label class="form-label">Leader</label>
+                <select id="formShiftUser" class="form-control"></select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tanggal</label>
+                <input type="date" id="formShiftDate" class="form-control">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Shift</label>
+                <select id="formShiftType" class="form-control">
+                  <option value="pagi">🌅 Pagi (07:00 - 15:00)</option>
+                  <option value="siang">☀️ Siang (15:00 - 23:00)</option>
+                  <option value="malam">🌙 Malam (23:00 - 07:00)</option>
+                </select>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-outline" onclick="closeShiftModal()">Batal</button>
+              <button class="btn btn-primary" onclick="saveShift()">💾 Simpan</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function setThisWeek() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const week = getWeekNumber(now);
+      document.getElementById('weekPicker').value = `${year}-W${String(week).padStart(2,'0')}`;
+      loadData();
+    }
+
+    function getWeekNumber(d) {
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    }
+
+    async function loadData() {
+      whenReady(async () => {
+        // Load leaders
+        const { data: us } = await window.db.from('users').select('id,nama').eq('role','leader').eq('active',true).order('nama');
+        leaders = us || [];
+
+        // Populate user dropdown in filter & modal
+        const filterSel = document.getElementById('filterLeader');
+        filterSel.innerHTML = '<option value="">Semua Leader</option>' + leaders.map(u => `<option value="${u.id}">${u.nama}</option>`).join('');
+        document.getElementById('formShiftUser').innerHTML = leaders.map(u => `<option value="${u.id}">${u.nama}</option>`).join('');
+
+        // Load shifts
+        const weekVal = document.getElementById('weekPicker').value;
+        let q = window.db.from('shifts').select('*,users(id,nama)').order('tanggal');
+        if (weekVal) {
+          const [yr, wk] = weekVal.split('-W');
+          const dates = getWeekDates(parseInt(yr), parseInt(wk));
+          q = q.gte('tanggal', dates[0]).lte('tanggal', dates[6]);
+        }
+        const { data } = await q;
+        shifts = data || [];
+        document.getElementById('shiftCount').textContent = `${shifts.length} jadwal`;
+        renderShiftTable();
+      });
+    }
+
+    function getWeekDates(year, week) {
+      const simple = new Date(year, 0, 1 + (week - 1) * 7);
+      const dow = simple.getDay();
+      const start = new Date(simple);
+      if (dow <= 4) start.setDate(simple.getDate() - simple.getDay() + 1);
+      else start.setDate(simple.getDate() + 8 - simple.getDay());
+      return Array.from({length:7}, (_, i) => {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        return d.toISOString().split('T')[0];
+      });
+    }
+
+    const shiftColors = { pagi: 'badge-warning', siang: 'badge-info', malam: 'badge-muted' };
+    const shiftIcons  = { pagi: '🌅', siang: '☀️', malam: '🌙' };
+
+    function renderShiftTable() {
+      const filterLeader = document.getElementById('filterLeader').value;
+      let list = shifts;
+      if (filterLeader) list = list.filter(s => s.user_id === filterLeader);
+
+      if (!list.length) {
+        document.getElementById('shiftTable').innerHTML = renderEmptyState('📅', 'Belum ada jadwal', 'Klik + Tambah Jadwal untuk menambahkan.');
+        return;
+      }
+
+      document.getElementById('shiftTable').innerHTML = `
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Tanggal</th><th>Leader</th><th>Shift</th><th>Waktu</th><th></th></tr></thead>
+            <tbody>
+              ${list.map(s => `
+                <tr>
+                  <td><div style="font-weight:600">${DateUtils.formatDate(s.tanggal)}</div></td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--secondary),var(--primary));display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">${getInitials(s.users?.nama||'?')}</div>
+                      ${s.users?.nama||'—'}
+                    </div>
+                  </td>
+                  <td><span class="badge ${shiftColors[s.shift]||'badge-muted'}">${shiftIcons[s.shift]||''} ${s.shift}</span></td>
+                  <td style="font-size:13px;color:var(--text-muted)">${s.jam_masuk||'—'} – ${s.jam_keluar||'—'}</td>
+                  <td>
+                    <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="deleteShift('${s.id}')">🗑️</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function openAddShift() {
+      document.getElementById('shiftModalTitle').textContent = 'Tambah Jadwal';
+      document.getElementById('editShiftId').value = '';
+      document.getElementById('formShiftDate').value = DateUtils.today();
+      document.getElementById('shiftModal').classList.add('open');
+    }
+
+    function closeShiftModal() { document.getElementById('shiftModal').classList.remove('open'); }
+
+    const shiftTimes = { pagi: ['07:00','15:00'], siang: ['15:00','23:00'], malam: ['23:00','07:00'] };
+
+    async function saveShift() {
+      const userId   = document.getElementById('formShiftUser').value;
+      const tanggal  = document.getElementById('formShiftDate').value;
+      const shiftType= document.getElementById('formShiftType').value;
+      if (!userId || !tanggal) { Toast.warning('Lengkapi semua field.'); return; }
+
+      const [masuk, keluar] = shiftTimes[shiftType];
+      whenReady(async () => {
+        const { error } = await window.db.from('shifts').insert({ user_id: userId, tanggal, shift: shiftType, jam_masuk: masuk, jam_keluar: keluar });
+        if (error) { Toast.error('Gagal simpan jadwal: ' + error.message); return; }
+        Toast.success('Jadwal ditambahkan!');
+        closeShiftModal();
+        loadData();
+      });
+    }
+
+    async function deleteShift(id) {
+      if (!confirm('Hapus jadwal ini?')) return;
+      whenReady(async () => {
+        const { error } = await window.db.from('shifts').delete().eq('id', id);
+        if (error) { Toast.error('Gagal hapus.'); return; }
+        Toast.success('Jadwal dihapus!');
+        loadData();
+      });
+    }
+
+    // Init week picker on load
+    document.addEventListener('DOMContentLoaded', () => setTimeout(setThisWeek, 100));
+  </script>
+</body>
+</html>

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Supervisor Dashboard</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../services/task.js"></script>
+  <script src="../../services/upload.js"></script>
+  <script src="../../utils/helper.js"></script>
+  <script src="../../utils/export.js"></script>
+  <script src="../../components/layout.js"></script>
+
+  <script>
+    const user = AuthService.requireAuth('supervisor');
+    let activityChart = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      loadDashboard();
+      subscribeRealtime();
+    });
+
+    function buildSidebar() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo">
+            <div class="logo-icon">🧹</div>
+            <div class="logo-text">CleanPro<span>Monitoring System</span></div>
+          </div>
+          <div class="sidebar-nav">
+            <div class="nav-section-label">Monitoring</div>
+            <a href="dashboard.html" class="nav-item active"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Riwayat Semua</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Manajemen</div>
+            <a href="users.html" class="nav-item"><span class="nav-icon">👥</span><span class="nav-label">User Management</span></a>
+            <a href="areas.html" class="nav-item"><span class="nav-icon">🗺️</span><span class="nav-label">Area & QR</span></a>
+            <a href="checklists.html" class="nav-item"><span class="nav-icon">✅</span><span class="nav-label">Checklist</span></a>
+            <a href="shifts.html" class="nav-item"><span class="nav-icon">📅</span><span class="nav-label">Jadwal Shift</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Laporan</div>
+            <a href="report.html" class="nav-item"><span class="nav-icon">📄</span><span class="nav-label">Export Laporan</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user">
+              <div class="user-avatar">${getInitials(user.nama)}</div>
+              <div class="user-info">
+                <div class="user-name">${user.nama}</div>
+                <div class="user-role">Supervisor</div>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer">
+              <span class="nav-icon">🚪</span><span class="nav-label">Keluar</span>
+            </div>
+          </div>
+        </nav>
+      `;
+    }
+
+    function buildLayout() {
+      return buildSidebar() + `
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Dashboard Supervisor<small>Monitoring real-time aktivitas cleaning</small></div>
+            <div class="topbar-actions">
+              <div class="topbar-btn" id="realtimeDot" title="Realtime aktif" style="color:var(--success)">🔴</div>
+              <select class="form-control" id="filterDateTopbar" onchange="loadDashboard()" style="max-width:160px;padding:8px 12px;font-size:13px">
+                <option value="${DateUtils.today()}">Hari ini</option>
+              </select>
+            </div>
+          </header>
+          <main class="page-content">
+
+            <!-- Stat Cards -->
+            <div class="grid grid-4 mb-20 anim-fade-up" id="statsGrid">
+              ${skeletonCard(4)}
+            </div>
+
+            <!-- Main Grid -->
+            <div class="grid grid-2 mb-20 anim-fade-up-delay-1">
+              <!-- Activity Chart -->
+              <div class="card">
+                <div class="section-header mb-16">
+                  <div class="section-title">📈 Aktivitas Task (7 Hari)</div>
+                </div>
+                <div style="position:relative;height:220px">
+                  <canvas id="activityChart"></canvas>
+                </div>
+              </div>
+
+              <!-- Area Status -->
+              <div class="card">
+                <div class="section-header mb-16">
+                  <div class="section-title">🗺️ Status Area Hari Ini</div>
+                  <button class="btn btn-outline btn-sm" onclick="window.location.href='areas.html'">Kelola</button>
+                </div>
+                <div id="areaStatus">${skeletonCard(1)}</div>
+              </div>
+            </div>
+
+            <!-- Filter + Realtime Timeline -->
+            <div class="card anim-fade-up-delay-2">
+              <div class="section-header mb-16">
+                <div class="section-title">⚡ Timeline Realtime</div>
+                <span class="badge badge-success" id="realtimeBadge">● LIVE</span>
+              </div>
+
+              <!-- Filters -->
+              <div class="filter-bar mb-16">
+                <input type="date" id="filterDate" class="form-control" value="${DateUtils.today()}" onchange="loadTimeline()">
+                <select id="filterUser" class="form-control" onchange="loadTimeline()">
+                  <option value="">Semua Leader</option>
+                </select>
+                <select id="filterArea" class="form-control" onchange="loadTimeline()">
+                  <option value="">Semua Area</option>
+                </select>
+                <button class="btn btn-outline btn-sm" onclick="resetFilters()">Reset</button>
+              </div>
+
+              <div id="timelineContainer">${skeletonCard(3)}</div>
+              <div id="loadMoreBtn" style="display:none;text-align:center;margin-top:16px">
+                <button class="btn btn-outline" onclick="loadMore()">Muat Lebih Banyak</button>
+              </div>
+            </div>
+
+          </main>
+        </div>
+      `;
+    }
+
+    let timelineOffset = 0;
+    let allTasks = [];
+
+    async function loadDashboard() {
+      const [stats, tasks7d] = await Promise.all([
+        TaskService.getDashboardStats(),
+        getWeeklyTasks(),
+      ]);
+      renderStats(stats);
+      renderChart(tasks7d);
+      await loadAreaStatus(stats);
+      await loadTimeline(true);
+      await populateFilters();
+    }
+
+    function renderStats(stats) {
+      document.getElementById('statsGrid').innerHTML = `
+        <div class="card stat-card anim-fade-up">
+          <div class="stat-card-glow" style="background:var(--primary)"></div>
+          <div class="stat-icon" style="background:var(--success-bg);color:var(--success)">✅</div>
+          <div class="stat-value">${stats.totalToday}</div>
+          <div class="stat-label">Task Hari Ini</div>
+        </div>
+        <div class="card stat-card anim-fade-up-delay-1">
+          <div class="stat-card-glow" style="background:var(--secondary)"></div>
+          <div class="stat-icon" style="background:var(--info-bg);color:var(--info)">👷</div>
+          <div class="stat-value">${stats.totalUsers}</div>
+          <div class="stat-label">Total Leader Aktif</div>
+        </div>
+        <div class="card stat-card anim-fade-up-delay-2">
+          <div class="stat-card-glow" style="background:var(--accent-amber)"></div>
+          <div class="stat-icon" style="background:var(--warning-bg);color:var(--warning)">📍</div>
+          <div class="stat-value">${stats.checkedAreas}<span style="font-size:18px;opacity:.5">/${stats.totalAreas}</span></div>
+          <div class="stat-label">Area Sudah Dicek</div>
+        </div>
+        <div class="card stat-card anim-fade-up-delay-3">
+          <div class="stat-card-glow" style="background:var(--accent)"></div>
+          <div class="stat-icon" style="background:var(--danger-bg);color:var(--danger)">⚠️</div>
+          <div class="stat-value">${stats.uncheckedAreas}</div>
+          <div class="stat-label">Area Belum Dicek</div>
+        </div>
+      `;
+    }
+
+    async function getWeeklyTasks() {
+      const days = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        days.push(d.toISOString().split('T')[0]);
+      }
+      const results = [];
+      for (const d of days) {
+        const { data } = await TaskService.getAllTasks({ date: d, limit: 1000 });
+        results.push({ date: d, count: data?.length || 0 });
+      }
+      return results;
+    }
+
+    function renderChart(data) {
+      const ctx = document.getElementById('activityChart');
+      if (!ctx) return;
+      if (activityChart) activityChart.destroy();
+
+      const labels = data.map(d => {
+        const dt = new Date(d.date);
+        return dt.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric' });
+      });
+
+      activityChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Task',
+            data: data.map(d => d.count),
+            backgroundColor: 'rgba(0,212,170,0.25)',
+            borderColor: 'rgba(0,212,170,0.8)',
+            borderWidth: 2,
+            borderRadius: 8,
+            hoverBackgroundColor: 'rgba(0,212,170,0.45)',
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#8896B3', font: { size: 11 } }
+            },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#8896B3', font: { size: 11 }, stepSize: 1 },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
+    async function loadAreaStatus(stats) {
+      const areas = await TaskService.getAreas();
+      const today = DateUtils.today();
+      const { data: todayTasks } = await TaskService.getAllTasks({ date: today, limit: 1000 });
+      const checkedIds = new Set((todayTasks || []).map(t => t.area_id));
+
+      document.getElementById('areaStatus').innerHTML = areas.length ? `
+        <div style="display:flex;flex-direction:column;gap:8px;max-height:220px;overflow-y:auto">
+          ${areas.map(a => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-input);border-radius:10px">
+              <span style="font-size:14px">📍 ${a.nama_area}</span>
+              <span class="badge ${checkedIds.has(a.id) ? 'badge-success' : 'badge-warning'}">${checkedIds.has(a.id) ? '✓ Dicek' : '⏳ Belum'}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : renderEmptyState('🗺️', 'Belum ada area', 'Tambah area di menu Area & QR.');
+    }
+
+    async function loadTimeline(reset = true) {
+      if (reset) timelineOffset = 0;
+      const date = document.getElementById('filterDate')?.value || DateUtils.today();
+      const userId = document.getElementById('filterUser')?.value || null;
+      const areaId = document.getElementById('filterArea')?.value || null;
+
+      const { data } = await TaskService.getAllTasks({ date, userId, areaId, limit: 20, offset: timelineOffset });
+
+      if (reset) allTasks = data || [];
+      else allTasks = [...allTasks, ...(data || [])];
+
+      document.getElementById('timelineContainer').innerHTML = renderTimeline(allTasks, true);
+      document.getElementById('loadMoreBtn').style.display = (data?.length === 20) ? 'block' : 'none';
+    }
+
+    async function loadMore() {
+      timelineOffset += 20;
+      await loadTimeline(false);
+    }
+
+    function resetFilters() {
+      document.getElementById('filterDate').value = DateUtils.today();
+      document.getElementById('filterUser').value = '';
+      document.getElementById('filterArea').value = '';
+      loadTimeline();
+    }
+
+    async function populateFilters() {
+      // Load users
+      whenReady(async () => {
+        const { data: users } = await window.db.from('users').select('id,nama').eq('role','leader').eq('active',true).order('nama');
+        const userSel = document.getElementById('filterUser');
+        (users || []).forEach(u => {
+          const opt = document.createElement('option');
+          opt.value = u.id; opt.textContent = u.nama;
+          userSel?.appendChild(opt);
+        });
+
+        // Load areas
+        const areas = await TaskService.getAreas();
+        const areaSel = document.getElementById('filterArea');
+        areas.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.id; opt.textContent = a.nama_area;
+          areaSel?.appendChild(opt);
+        });
+      });
+    }
+
+    function subscribeRealtime() {
+      TaskService.subscribeToTasks(() => {
+        Toast.success('⚡ Task baru masuk!');
+        document.getElementById('realtimeDot').style.animation = 'pulse 0.5s ease 3';
+        loadTimeline(true);
+        TaskService.getDashboardStats().then(renderStats);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Area & QR</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../utils/helper.js"></script>
+
+  <style>
+    .area-card { display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg-input);border-radius:var(--border-radius-sm);border:1px solid var(--glass-border);margin-bottom:8px;transition:all var(--transition-base); }
+    .area-card:hover { border-color:rgba(255,255,255,0.1); }
+    .qr-preview { width:48px;height:48px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0; }
+    .qr-print-box { background:#fff;padding:24px;border-radius:16px;text-align:center;display:inline-block; }
+    .qr-print-box .qr-label { color:#111;font-family:sans-serif;font-size:14px;font-weight:700;margin-top:12px; }
+    .qr-print-box .qr-sub { color:#666;font-size:11px;margin-top:2px; }
+  </style>
+
+  <script>
+    const user = AuthService.requireAuth('supervisor');
+    let areas = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      loadAreas();
+    });
+
+    function buildLayout() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo"><div class="logo-icon">🧹</div><div class="logo-text">CleanPro<span>Monitoring System</span></div></div>
+          <div class="sidebar-nav">
+            <div class="nav-section-label">Monitoring</div>
+            <a href="dashboard.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item"><span class="nav-icon">📊</span><span class="nav-label">Riwayat Semua</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Manajemen</div>
+            <a href="users.html" class="nav-item"><span class="nav-icon">👥</span><span class="nav-label">User Management</span></a>
+            <a href="areas.html" class="nav-item active"><span class="nav-icon">🗺️</span><span class="nav-label">Area & QR</span></a>
+            <a href="checklists.html" class="nav-item"><span class="nav-icon">✅</span><span class="nav-label">Checklist</span></a>
+            <a href="shifts.html" class="nav-item"><span class="nav-icon">📅</span><span class="nav-label">Jadwal Shift</span></a>
+            <div class="nav-section-label" style="margin-top:8px">Laporan</div>
+            <a href="report.html" class="nav-item"><span class="nav-icon">📄</span><span class="nav-label">Export Laporan</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user"><div class="user-avatar">${getInitials(user.nama)}</div><div class="user-info"><div class="user-name">${user.nama}</div><div class="user-role">Supervisor</div></div></div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer"><span class="nav-icon">🚪</span><span class="nav-label">Keluar</span></div>
+          </div>
+        </nav>
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Area & QR Management<small>Kelola area patrol & generate QR code</small></div>
+            <div class="topbar-actions">
+              <button class="btn btn-outline btn-sm" onclick="printAllQR()">🖨️ Print Semua QR</button>
+              <button class="btn btn-primary btn-sm" onclick="openAddArea()">+ Tambah Area</button>
+            </div>
+          </header>
+          <main class="page-content">
+
+            <div class="grid grid-2 mb-20 anim-fade-up">
+              <div class="card">
+                <div class="section-header mb-16">
+                  <div class="section-title">🗺️ Daftar Area</div>
+                  <span id="areaCount" class="badge badge-muted">—</span>
+                </div>
+                <div id="areaList">${skeletonCard(3)}</div>
+              </div>
+
+              <!-- QR Preview Panel -->
+              <div class="card" id="qrPanel" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px">
+                <div style="text-align:center;opacity:0.4">
+                  <div style="font-size:52px;margin-bottom:12px">📱</div>
+                  <div style="font-size:15px;font-weight:600">Pilih Area</div>
+                  <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Klik area untuk lihat QR code</div>
+                </div>
+              </div>
+            </div>
+
+          </main>
+        </div>
+
+        <!-- Modal Tambah/Edit Area -->
+        <div class="modal-overlay" id="areaModal">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title" id="areaModalTitle">Tambah Area</div>
+              <button class="modal-close" onclick="closeAreaModal()">✕</button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" id="editAreaId">
+              <div class="form-group">
+                <label class="form-label">Nama Area</label>
+                <input type="text" id="formAreaNama" class="form-control" placeholder="Contoh: Toilet A, Lobby Utama">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Kategori</label>
+                <select id="formAreaKategori" class="form-control">
+                  <option value="Toilet">Toilet</option>
+                  <option value="Lobby">Lobby</option>
+                  <option value="Foodcourt">Foodcourt</option>
+                  <option value="Musholla">Musholla</option>
+                  <option value="Basement">Basement</option>
+                  <option value="Parkir">Parkir</option>
+                  <option value="Koridor">Koridor</option>
+                  <option value="Lainnya">Lainnya</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Kode QR <small style="color:var(--text-muted)">(otomatis jika kosong)</small></label>
+                <input type="text" id="formAreaQR" class="form-control" placeholder="Kosongkan untuk generate otomatis">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-outline" onclick="closeAreaModal()">Batal</button>
+              <button class="btn btn-primary" onclick="saveArea()">💾 Simpan</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function loadAreas() {
+      whenReady(async () => {
+        const { data } = await window.db.from('areas').select('*').order('nama_area');
+        areas = data || [];
+        document.getElementById('areaCount').textContent = `${areas.length} area`;
+        renderAreaList();
+      });
+    }
+
+    const categoryIcons = { Toilet:'🚽', Lobby:'🏛️', Foodcourt:'🍔', Musholla:'🕌', Basement:'🅿️', Parkir:'🚗', Koridor:'🚶', Lainnya:'📍' };
+
+    function renderAreaList() {
+      if (!areas.length) {
+        document.getElementById('areaList').innerHTML = renderEmptyState('🗺️', 'Belum ada area', 'Klik + Tambah Area untuk menambahkan.');
+        return;
+      }
+      document.getElementById('areaList').innerHTML = areas.map(a => `
+        <div class="area-card" onclick="showQR('${a.id}')" style="cursor:pointer">
+          <div class="qr-preview">${categoryIcons[a.kategori]||'📍'}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:14px">${a.nama_area}</div>
+            <div style="font-size:12px;color:var(--text-muted)">${a.kategori} · ${a.qr_code}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openEditArea('${a.id}')" title="Edit">✏️</button>
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();deleteArea('${a.id}','${a.nama_area}')" title="Hapus" style="color:var(--danger)">🗑️</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function showQR(areaId) {
+      const area = areas.find(a => a.id === areaId);
+      if (!area) return;
+
+      const panel = document.getElementById('qrPanel');
+      panel.innerHTML = `
+        <div style="text-align:center">
+          <div style="font-size:18px;font-weight:700;margin-bottom:20px;color:var(--primary)">${area.nama_area}</div>
+          <div class="qr-print-box" id="qrDisplay">
+            <div id="qrCanvas_${area.id}"></div>
+            <div class="qr-label">${area.nama_area}</div>
+            <div class="qr-sub">${area.kategori} · CleanPro</div>
+          </div>
+          <div style="margin-top:16px;font-size:12px;color:var(--text-muted)">Kode: <strong>${area.qr_code}</strong></div>
+          <div style="display:flex;gap:8px;justify-content:center;margin-top:16px">
+            <button class="btn btn-outline btn-sm" onclick="downloadQR('${area.id}','${area.nama_area}')">⬇️ Download</button>
+            <button class="btn btn-primary btn-sm" onclick="printQR('${area.id}','${area.nama_area}')">🖨️ Print</button>
+          </div>
+        </div>
+      `;
+
+      // Generate QR
+      setTimeout(() => {
+        new QRCode(document.getElementById(`qrCanvas_${area.id}`), {
+          text: area.qr_code,
+          width: 180,
+          height: 180,
+          colorDark: '#000',
+          colorLight: '#fff',
+          correctLevel: QRCode.CorrectLevel.H
+        });
+      }, 100);
+    }
+
+    function downloadQR(areaId, areaName) {
+      setTimeout(() => {
+        const canvas = document.querySelector(`#qrCanvas_${areaId} canvas`);
+        if (!canvas) { Toast.error('QR belum dirender.'); return; }
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = `QR-${areaName.replace(/\s+/g,'-')}.png`;
+        link.click();
+        Toast.success('QR code diunduh!');
+      }, 200);
+    }
+
+    function printQR(areaId, areaName) {
+      const canvas = document.querySelector(`#qrCanvas_${areaId} canvas`);
+      if (!canvas) { Toast.error('QR belum siap.'); return; }
+      const imgSrc = canvas.toDataURL('image/png');
+      const win = window.open('', '_blank');
+      win.document.write(`
+        <html><head><title>QR - ${areaName}</title>
+        <style>body{display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff;font-family:sans-serif;}
+        .box{text-align:center;border:2px solid #eee;padding:30px;border-radius:12px;}
+        h2{margin:16px 0 4px;font-size:18px;color:#111;}p{color:#666;font-size:12px;margin:0;}
+        </style>  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head><body>
+        <div class="box"><img src="${imgSrc}" width="200"><h2>${areaName}</h2><p>Scan untuk input task · CleanPro</p></div>
+        <script>window.onload=()=>{window.print();window.close();}<\/script>
+        </body></html>
+      `);
+    }
+
+    function printAllQR() {
+      if (!areas.length) { Toast.warning('Belum ada area.'); return; }
+      const win = window.open('', '_blank');
+      let html = `<html><head><title>Semua QR CleanPro</title>
+        <style>body{font-family:sans-serif;background:#fff;}
+        .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;padding:24px;}
+        .box{text-align:center;border:2px solid #eee;padding:20px;border-radius:12px;page-break-inside:avoid;}
+        h3{margin:12px 0 2px;font-size:14px;}p{color:#888;font-size:11px;margin:0;}
+        @media print{.grid{gap:16px;padding:16px;}}
+        </style>  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head><body><div class="grid">`;
+
+      areas.forEach(a => {
+        html += `<div class="box" id="qr_${a.id}"><div id="qrc_${a.id}"></div><h3>${a.nama_area}</h3><p>${a.kategori}</p></div>`;
+      });
+
+      html += `</div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>
+        <script>
+        const defs = ${JSON.stringify(areas.map(a=>({id:a.id,qr:a.qr_code})))};
+        defs.forEach(d=>{new QRCode(document.getElementById('qrc_'+d.id),{text:d.qr,width:140,height:140,colorDark:'#000',colorLight:'#fff'});});
+        setTimeout(()=>{window.print();window.close();},1500);
+        <\/script></body></html>`;
+      win.document.write(html);
+    }
+
+    function openAddArea() {
+      document.getElementById('areaModalTitle').textContent = 'Tambah Area';
+      document.getElementById('editAreaId').value = '';
+      document.getElementById('formAreaNama').value = '';
+      document.getElementById('formAreaKategori').value = 'Toilet';
+      document.getElementById('formAreaQR').value = '';
+      document.getElementById('areaModal').classList.add('open');
+    }
+
+    function openEditArea(id) {
+      const a = areas.find(x => x.id === id);
+      if (!a) return;
+      document.getElementById('areaModalTitle').textContent = 'Edit Area';
+      document.getElementById('editAreaId').value = a.id;
+      document.getElementById('formAreaNama').value = a.nama_area;
+      document.getElementById('formAreaKategori').value = a.kategori || 'Lainnya';
+      document.getElementById('formAreaQR').value = a.qr_code;
+      document.getElementById('areaModal').classList.add('open');
+    }
+
+    function closeAreaModal() { document.getElementById('areaModal').classList.remove('open'); }
+
+    function generateQRCode() {
+      return 'QR-' + Date.now() + '-' + Math.random().toString(36).substr(2,6).toUpperCase();
+    }
+
+    async function saveArea() {
+      const id       = document.getElementById('editAreaId').value;
+      const nama     = document.getElementById('formAreaNama').value.trim();
+      const kategori = document.getElementById('formAreaKategori').value;
+      const qr       = document.getElementById('formAreaQR').value.trim() || generateQRCode();
+
+      if (!nama) { Toast.warning('Nama area wajib diisi.'); return; }
+
+      whenReady(async () => {
+        if (id) {
+          const { error } = await window.db.from('areas').update({ nama_area: nama, kategori, qr_code: qr }).eq('id', id);
+          if (error) { Toast.error('Gagal update area.'); return; }
+          Toast.success('Area berhasil diupdate!');
+        } else {
+          const { error } = await window.db.from('areas').insert({ nama_area: nama, kategori, qr_code: qr });
+          if (error) { Toast.error('Gagal tambah area.'); return; }
+          Toast.success('Area berhasil ditambahkan!');
+        }
+        closeAreaModal();
+        loadAreas();
+      });
+    }
+
+    async function deleteArea(id, nama) {
+      if (!confirm(`Hapus area "${nama}"? Tindakan ini tidak bisa dibatalkan.`)) return;
+      whenReady(async () => {
+        const { error } = await window.db.from('areas').delete().eq('id', id);
+        if (error) { Toast.error('Gagal hapus area.'); return; }
+        Toast.success('Area dihapus!');
+        loadAreas();
+      });
+    }
+  </script>
+</body>
+</html>

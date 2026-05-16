@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CleanPro — Profile</title>
+  <link rel="stylesheet" href="../../assets/css/main.css">
+  <link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="app-bg"></div>
+  <div class="app-bg-noise"></div>
+  <script src="../../config/config.js"></script>
+  <script src="../../services/supabase.js"></script>
+  <script src="../../services/auth.js"></script>
+  <script src="../../services/task.js"></script>
+  <script src="../../utils/helper.js"></script>
+  <script src="../../components/layout.js"></script>
+  <script>
+    const user = AuthService.requireAuth('leader');
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.insertAdjacentHTML('afterbegin', buildLayout());
+      Sidebar.init();
+      loadStats();
+    });
+
+    function buildLayout() {
+      return `
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+          <div class="sidebar-logo">
+            <div class="logo-icon">🧹</div>
+            <div class="logo-text">CleanPro<span>Monitoring System</span></div>
+          </div>
+          <div class="sidebar-nav">
+            <a href="dashboard.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
+            <a href="scan.html" class="nav-item"><span class="nav-icon">📷</span><span class="nav-label">Scan Task</span></a>
+            <a href="history.html" class="nav-item"><span class="nav-icon">📋</span><span class="nav-label">Riwayat Saya</span></a>
+            <a href="profile.html" class="nav-item active"><span class="nav-icon">👤</span><span class="nav-label">Profile Saya</span></a>
+          </div>
+          <div class="sidebar-footer">
+            <div class="sidebar-user">
+              <div class="user-avatar">${getInitials(user.nama)}</div>
+              <div class="user-info">
+                <div class="user-name">${user.nama}</div>
+                <div class="user-role">Leader</div>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="nav-item" onclick="AuthService.logout()" style="color:var(--danger);cursor:pointer">
+              <span class="nav-icon">🚪</span><span class="nav-label">Keluar</span>
+            </div>
+          </div>
+        </nav>
+        <div class="main-content" id="mainContent">
+          <header class="topbar" id="topbar">
+            <button class="topbar-toggle" onclick="Sidebar.toggle()">☰</button>
+            <div class="topbar-breadcrumb">Profile Saya<small>Informasi akun & keamanan</small></div>
+          </header>
+          <main class="page-content">
+            <div class="grid grid-2 anim-fade-up">
+
+              <!-- Profile Info -->
+              <div>
+                <div class="card mb-16">
+                  <div style="text-align:center;padding:16px 0 8px">
+                    <div style="width:80px;height:80px;border-radius:20px;background:linear-gradient(135deg,var(--secondary),var(--primary));display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:32px;font-weight:800;margin-bottom:16px;box-shadow:var(--shadow-primary)">
+                      ${getInitials(user.nama)}
+                    </div>
+                    <div style="font-family:var(--font-display);font-size:22px;font-weight:700">${user.nama}</div>
+                    <div style="color:var(--text-secondary);font-size:14px;margin-top:4px">@${user.username}</div>
+                    <div style="margin-top:10px"><span class="badge badge-info">Leader</span></div>
+                  </div>
+                  <div class="divider"></div>
+                  <div style="display:grid;gap:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px">
+                      <span style="color:var(--text-secondary);font-size:13px">Username</span>
+                      <span style="font-weight:600">${user.username}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px">
+                      <span style="color:var(--text-secondary);font-size:13px">Role</span>
+                      <span style="font-weight:600">Leader</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px">
+                      <span style="color:var(--text-secondary);font-size:13px">Shift Aktif</span>
+                      <span style="font-weight:600">${window.CLEANPRO_CONFIG?.SHIFTS?.[user.shift]?.icon || ''} ${user.shift}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px">
+                      <span style="color:var(--text-secondary);font-size:13px">Status</span>
+                      <span class="badge ${AuthService.isOnShift() ? 'badge-success' : 'badge-warning'}">${AuthService.isOnShift() ? '✅ Sedang Shift' : '⏸ Di Luar Shift'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Stats -->
+                <div class="card" id="statsCard">
+                  <div class="section-title mb-16">📊 Statistik Saya</div>
+                  <div id="statsContent">${skeletonCard(1)}</div>
+                </div>
+              </div>
+
+              <!-- Change Password -->
+              <div>
+                <div class="card">
+                  <div class="section-title mb-4">🔒 Ganti Password</div>
+                  <div style="color:var(--text-secondary);font-size:13px;margin-bottom:20px">Gunakan password yang kuat dan mudah diingat.</div>
+
+                  <div id="pwError" class="error-msg" style="display:none;margin-bottom:16px;background:var(--danger-bg);border:1px solid rgba(255,107,107,0.2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--danger)"></div>
+                  <div id="pwSuccess" style="display:none;margin-bottom:16px;background:var(--success-bg);border:1px solid rgba(0,212,170,0.2);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--success)"></div>
+
+                  <div class="form-group">
+                    <label class="form-label">Password Lama</label>
+                    <input type="password" id="oldPass" class="form-control" placeholder="Masukkan password lama">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Password Baru</label>
+                    <input type="password" id="newPass" class="form-control" placeholder="Min. 6 karakter">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Konfirmasi Password Baru</label>
+                    <input type="password" id="confirmPass" class="form-control" placeholder="Ulangi password baru">
+                  </div>
+
+                  <button class="btn btn-primary w-100" onclick="changePassword()">
+                    🔒 Simpan Password Baru
+                  </button>
+                </div>
+
+                <!-- Session Info -->
+                <div class="card mt-16" style="margin-top:16px">
+                  <div class="section-title mb-12">🔑 Sesi Login</div>
+                  <div style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">
+                    Login terakhir: ${DateUtils.formatDateTime(user.loginTime || new Date().toISOString())}
+                  </div>
+                  <button class="btn btn-danger w-100" onclick="AuthService.logout()">
+                    🚪 Keluar dari Akun
+                  </button>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      `;
+    }
+
+    async function loadStats() {
+      const today = DateUtils.today();
+      const [todayCount, { data: allData }] = await Promise.all([
+        TaskService.getTodayCount(user.id),
+        TaskService.getMyTasks(user.id, { limit: 1000 }),
+      ]);
+
+      const areas = [...new Set((allData || []).map(t => t.area_id))].length;
+
+      document.getElementById('statsContent').innerHTML = `
+        <div style="display:grid;gap:12px">
+          <div style="display:flex;justify-content:space-between;padding:10px;background:var(--bg-input);border-radius:10px">
+            <span style="color:var(--text-secondary)">Task Hari Ini</span>
+            <strong style="color:var(--primary)">${todayCount}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:10px;background:var(--bg-input);border-radius:10px">
+            <span style="color:var(--text-secondary)">Total Task</span>
+            <strong>${allData?.length || 0}</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:10px;background:var(--bg-input);border-radius:10px">
+            <span style="color:var(--text-secondary)">Area Pernah Dikunjungi</span>
+            <strong>${areas}</strong>
+          </div>
+        </div>
+      `;
+    }
+
+    async function changePassword() {
+      const oldPass = document.getElementById('oldPass').value;
+      const newPass = document.getElementById('newPass').value;
+      const confirmPass = document.getElementById('confirmPass').value;
+      const errEl = document.getElementById('pwError');
+      const sucEl = document.getElementById('pwSuccess');
+
+      errEl.style.display = 'none';
+      sucEl.style.display = 'none';
+
+      if (!oldPass || !newPass || !confirmPass) {
+        errEl.textContent = 'Semua field wajib diisi.';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (newPass.length < 6) {
+        errEl.textContent = 'Password baru minimal 6 karakter.';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (newPass !== confirmPass) {
+        errEl.textContent = 'Konfirmasi password tidak cocok.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      const result = await AuthService.changePassword(user.id, oldPass, newPass);
+      if (result.success) {
+        sucEl.textContent = '✅ Password berhasil diubah!';
+        sucEl.style.display = 'block';
+        document.getElementById('oldPass').value = '';
+        document.getElementById('newPass').value = '';
+        document.getElementById('confirmPass').value = '';
+      } else {
+        errEl.textContent = result.message;
+        errEl.style.display = 'block';
+      }
+    }
+  </script>
+  <style>
+    .mt-16 { margin-top: 16px; }
+  </style>
+</body>
+</html>
