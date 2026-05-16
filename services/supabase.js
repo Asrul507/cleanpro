@@ -13,7 +13,7 @@
   }
 
   loadSupabase(function () {
-    const { 'https://ccsenxvnbwyijmdpkobd.supabase.co/rest/v1/', eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjc2VueHZuYnd5aWptZHBrb2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MjI2MTcsImV4cCI6MjA5NDM5ODYxN30.FTrjVXI1s9fioUsw_XbBwMppLlsUnheAwxz0cloCYzU } = window.CLEANPRO_CONFIG;
+    const { 'https://ccsenxvnbwyijmdpkobd.supabase.co', eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjc2VueHZuYnd5aWptZHBrb2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MjI2MTcsImV4cCI6MjA5NDM5ODYxN30.FTrjVXI1s9fioUsw_XbBwMppLlsUnheAwxz0cloCYzU } = window.CLEANPRO_CONFIG;
     window.db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     document.dispatchEvent(new Event('supabase-ready'));
   });
