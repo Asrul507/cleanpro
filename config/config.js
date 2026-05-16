@@ -5,7 +5,7 @@
 // Jangan commit file ini dengan key nyata ke public repo
 
 window.CLEANPRO_CONFIG = {
-  SUPABASE_URL: 'https://ccsenxvnbwyijmdpkobd.supabase.co/rest/v1/',
+  SUPABASE_URL: 'https://ccsenxvnbwyijmdpkobd.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNjc2VueHZuYnd5aWptZHBrb2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MjI2MTcsImV4cCI6MjA5NDM5ODYxN30.FTrjVXI1s9fioUsw_XbBwMppLlsUnheAwxz0cloCYzU',
   APP_NAME: 'CleanPro',
   APP_VERSION: '1.0.0',
