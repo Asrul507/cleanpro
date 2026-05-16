@@ -39,6 +39,7 @@
     );
 
     console.log('Supabase connected');
+    console.log(window.db);
 
     // Trigger ready event
     document.dispatchEvent(
